@@ -21,10 +21,15 @@ connect-src と img-src は変更しないこと。
   --line: #c9d0d7;
   --text: #1f2429;
   --muted: #66707a;
+  /* 無効なボタンの文字色。--mutedより一段階弱い */
+  --muted-dim: #9aa3ac;
   --accent: #2f4fc4;
   --accent-soft: rgba(47, 79, 196, 0.12);
   --danger: #b3261e;
   --paper-shadow: 0 0 0 1px rgba(20, 30, 40, 0.08), 0 2px 6px rgba(20, 30, 40, 0.18);
+  /* ボタンの面の色。通常とマウスオーバーの2段階 */
+  --button-face: #ccd3da;
+  --button-face-hover: #bbc4cd;
   --card-gap: 12px;
   --card-border: 2px;
   --drop-line: 4px;
@@ -44,10 +49,13 @@ connect-src と img-src は変更しないこと。
     --line: #353b43;
     --text: #e3e7ec;
     --muted: #8d97a2;
+    --muted-dim: #5d666f;
     --accent: #7f97ff;
     --accent-soft: rgba(127, 151, 255, 0.16);
     --danger: #ff8a80;
     --paper-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.55);
+    --button-face: #2b3139;
+    --button-face-hover: #3b424c;
   }
 }
 
@@ -134,15 +142,13 @@ select {
   font-weight: 700;
   color: var(--muted);
   background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 50%;
+  border: 0;
+  border-radius: 6px;
   cursor: pointer;
 }
 
 .help-button:hover {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--button-face-hover);
 }
 
 /* 本体レイアウト */
@@ -277,9 +283,24 @@ select:focus-visible {
   cursor: pointer;
 }
 
-.control-reset:hover {
-  color: var(--accent);
-  background: var(--accent-soft);
+/* 入力欄と区別がつくよう、通常から薄い面を持たせる */
+.control-group > .control-reset {
+  background: var(--button-face);
+}
+
+.control-group > .control-reset:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--button-face-hover);
+}
+
+/* 既定値のときは面の色を持たず、文字も一段階弱める */
+.control-reset:disabled {
+  color: var(--muted-dim);
+  cursor: default;
+}
+
+.control-group > .control-reset:disabled {
+  background: var(--desk);
 }
 
 .control-group > input[type="range"] {
@@ -362,15 +383,15 @@ select:focus-visible {
 .reset-all {
   min-height: 32px;
   color: var(--muted);
-  background: transparent;
-  border: 1px solid var(--line);
+  background: var(--button-face);
+  border: 0;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .reset-all:hover:not(:disabled) {
-  color: var(--danger);
-  border-color: var(--danger);
+  color: var(--text);
+  background: var(--button-face-hover);
 }
 
 .reset-all:disabled {
@@ -412,23 +433,21 @@ select:focus-visible {
 .modal-actions button {
   min-height: 32px;
   padding: 0 16px;
-  background: transparent;
-  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--button-face);
+  border: 0;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .modal-actions button:hover {
-  background: var(--accent-soft);
+  color: var(--text);
+  background: var(--button-face-hover);
 }
 
-.modal-actions .danger {
-  color: var(--danger);
-}
-
+.modal-actions .danger,
 .modal-actions .danger:hover {
-  background: rgba(179, 38, 30, 0.12);
-  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .segmented {
@@ -618,6 +637,11 @@ select:focus-visible {
   user-select: none;
 }
 
+/* 既定のmin-widthは内容の最小幅になるため、長い名前がカードを押し広げてしまう */
+.card > * {
+  min-width: 0;
+}
+
 .card:hover {
   background: rgba(127, 127, 127, 0.08);
 }
@@ -795,9 +819,8 @@ select:focus-visible {
 }
 
 .card-name {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  /* 区切りの無い長いファイル名でも、カードの幅を押し広げないよう折り返す */
+  overflow-wrap: anywhere;
   font-weight: 600;
 }
 
@@ -971,14 +994,15 @@ body.busy .settings {
   align-self: center;
   min-height: 30px;
   padding: 0 14px;
+  color: var(--muted);
   background: transparent;
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 6px;
   cursor: pointer;
 }
 
 .help-close:hover {
-  background: var(--accent-soft);
+  background: var(--button-face-hover);
 }
 
 .help-body {
@@ -2512,7 +2536,7 @@ function buildZip(files, date) {
 // #region app
 
 /** 表示するバージョン。出力のたびに内容に応じて改定する。 */
-const APP_VERSION = "0.11.1";
+const APP_VERSION = "0.11.4";
 
 /** 設定を保存するキー。 */
 const STORAGE_KEY = "pdf-converter.settings";
