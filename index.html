@@ -2755,7 +2755,7 @@ function buildZip(files, date) {
 // #region app
 
 /** 表示するバージョン。出力のたびに内容に応じて改定する。 */
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.0.1";
 
 /** 設定を保存するキー。 */
 const STORAGE_KEY = "pdf-converter.settings";
@@ -4152,39 +4152,68 @@ async function collectDroppedEntries(dataTransfer) {
   const files = [...dataTransfer.files];
   const roots = items.map((item) => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null));
   /*
-  getAsFileSystemHandleはChromiumだと描画プロセスごと落ちることがあるため、
-  FileSystemEntryで読めなかったものに限り、保護された文脈でのみ呼ぶ。
-  ChromeはwebkitGetAsEntryが常に使えるので、通常ここは呼ばれない。
+  getAsFileSystemHandleは保護されていない接続だと描画プロセスごと落ちるため、
+  保護された文脈でだけ呼ぶ。
+  単独のファイルはFileSystemEntryで確実に読めるので対象にしない。
+  フォルダはfile://のChromeで中身を列挙できないことがあり、その受け皿になる。
   */
-  const handles = items.map((item, index) => (
-    roots[index] === null
-        && window.isSecureContext
-        && item.getAsFileSystemHandle
-      ? item.getAsFileSystemHandle().catch(() => null)
-      : null
-  ));
+  const handles = items.map((item, index) => {
+    const needsFallback = roots[index] === null || roots[index].isDirectory === true;
+    if (!needsFallback || !window.isSecureContext || !item.getAsFileSystemHandle) return null;
+    return item.getAsFileSystemHandle().catch(() => null);
+  });
 
   const entries = [];
   const unreadable = [];
   for (let i = 0; i < Math.max(items.length, files.length); i++) {
-    if (roots[i]) {
+    const root = roots[i];
+    let done = false;
+
+    if (root) {
+      const mark = entries.length;
       try {
-        await collectEntry(roots[i], [], entries);
-        continue;
+        await collectEntry(root, [], entries);
+        /*
+        file://のChromeは、フォルダの列挙に失敗しても例外を投げず空で返すことがある。
+        この形で開いているときだけ、空の結果を鵜呑みにせず次の手段へ回す。
+        サーバー経由なら空の結果は本当に空のフォルダなので、そのまま受け入れる。
+        */
+        done = root.isDirectory !== true
+            || entries.length > mark
+            || location.protocol !== "file:";
+        if (!done) entries.length = mark;
       }
       catch (error) {
         console.error(error);
+        // 途中まで取れた分が二重に入らないよう戻す
+        entries.length = mark;
       }
     }
-    const handle = handles[i] ? await handles[i] : null;
-    if (handle) {
-      try {
-        await collectHandle(handle, [], entries);
-        continue;
+
+    if (!done && handles[i]) {
+      const handle = await handles[i];
+      if (handle) {
+        const mark = entries.length;
+        try {
+          await collectHandle(handle, [], entries);
+          done = true;
+        }
+        catch (error) {
+          console.error(error);
+          entries.length = mark;
+        }
       }
-      catch (error) {
-        console.error(error);
-      }
+    }
+
+    if (done) continue;
+    /*
+    フォルダと分かっているものを通常のファイルとして扱うと、
+    「対応していない形式」という的外れな知らせになってしまう。
+    読み取れなかったフォルダとして報告する。
+    */
+    if (root !== null && root.isDirectory === true) {
+      unreadable.push(root.name || `項目 ${i + 1}`);
+      continue;
     }
     const file = files[i];
     if (!file) continue;
@@ -5134,7 +5163,7 @@ function bindEvents() {
   });
 
   // カードの並べ替え
-  document.addEventListener("dragover", (event) => {
+  const onReorderOver = (event) => {
     if (!state.dragging) return;
     if (!dom.grid.contains(event.target)) {
       // 領域外では挿入位置を示さず、ドロップも受け付けない
@@ -5144,7 +5173,14 @@ function bindEvents() {
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     updateDropIndicator(event);
-  });
+  };
+  /*
+  Chromiumは要素に入った瞬間のdragenterを取り消さないと、
+  次のdragoverが届くまでドロップ不可のカーソルに戻してしまう。
+  カードの境目を跨ぐたびにちらつくので、両方で受け止める。
+  */
+  document.addEventListener("dragenter", onReorderOver);
+  document.addEventListener("dragover", onReorderOver);
   dom.grid.addEventListener("drop", (event) => {
     if (!state.dragging) return;
     event.preventDefault();
@@ -5152,12 +5188,14 @@ function bindEvents() {
   });
 
   // ファイルのドロップ
-  window.addEventListener("dragover", (event) => {
+  const onFileOver = (event) => {
     if (!hasFiles(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = state.busy ? "none" : "copy";
     document.body.classList.add("file-over");
-  });
+  };
+  window.addEventListener("dragenter", onFileOver);
+  window.addEventListener("dragover", onFileOver);
   window.addEventListener("dragleave", (event) => {
     if (event.relatedTarget !== null) return;
     document.body.classList.remove("file-over");
