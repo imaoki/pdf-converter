@@ -12,7 +12,7 @@ connect-src と img-src は変更しないこと。
   content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'"
 >
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>画像 → PDF</title>
+<title>PDF Converter</title>
 <style>
 :root {
   color-scheme: light dark;
@@ -101,8 +101,8 @@ select {
 /* ヘッダー */
 .app-header {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  align-items: baseline;
+  gap: 8px;
   padding: 10px 20px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
@@ -115,12 +115,20 @@ select {
   letter-spacing: 0.02em;
 }
 
+.app-version {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .help-button {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 26px;
   height: 26px;
+  align-self: center;
   margin-left: auto;
   padding: 0;
   font-weight: 700;
@@ -302,8 +310,44 @@ input[type="number"] {
   cursor: pointer;
 }
 
+.check input:disabled,
+.check input:disabled + span {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .settings section + section {
   margin-top: 20px;
+}
+
+/* 折りたたみできる設定の節 */
+.panel > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.panel > summary::before {
+  content: "▸";
+  font-size: 10px;
+}
+
+.panel[open] > summary::before {
+  content: "▾";
+}
+
+.panel > summary:hover {
+  color: var(--text);
 }
 
 .segmented {
@@ -549,6 +593,18 @@ input[type="number"] {
 
 .card.selected .card-index {
   background: var(--accent);
+}
+
+.card-folder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.card-folder:empty {
+  display: none;
 }
 
 .card-name {
@@ -848,10 +904,12 @@ body.busy .settings {
   <symbol id="i-sort-desc" viewBox="0 0 24 24"><path d="M7 4v16M3 16l4 4 4-4M14 6h7M14 12h5M14 18h3"/></symbol>
   <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 11h11a5 5 0 0 1 0 10H9"/><path d="M8 7l-4 4 4 4"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
 </svg>
 
 <header class="app-header">
-  <h1>画像 → PDF</h1>
+  <h1>PDF Converter</h1>
+  <span class="app-version" id="app-version"></span>
   <button type="button" class="help-button" id="help-open" title="バージョンとヘルプ" aria-label="バージョンとヘルプ">?</button>
 </header>
 
@@ -860,6 +918,9 @@ body.busy .settings {
     <div class="toolbar">
       <button type="button" class="tool" id="add">
         <svg class="icon"><use href="#i-plus"></use></svg>画像を追加
+      </button>
+      <button type="button" class="tool" id="add-folder" title="フォルダ内の画像をまとめて追加（階層はしおりになります）">
+        <svg class="icon"><use href="#i-folder"></use></svg>フォルダを追加
       </button>
       <span class="separator"></span>
       <button type="button" class="tool" id="sort-asc" title="ファイル名の昇順（数字は数値として比較）">
@@ -889,7 +950,7 @@ body.busy .settings {
       <div class="empty" id="empty">
         <button type="button" class="dropzone" id="dropzone">
           <svg class="icon"><use href="#i-upload"></use></svg>
-          <strong>画像をドロップ、またはクリックして選択</strong>
+          <strong>画像やフォルダをドロップ、またはクリックして選択</strong>
           <p>JPEG、PNG、BMP、WebP、GIF、AVIF</p>
           <p>クリックで選択、Ctrl / Shift で複数選択、ドラッグで並べ替え</p>
         </button>
@@ -1006,6 +1067,19 @@ body.busy .settings {
 
     <section class="settings">
       <h2>出力</h2>
+      <label class="field">
+        <span class="field-label">しおり</span>
+        <select id="outline-mode">
+          <option value="none">作成しない</option>
+          <option value="folders">フォルダのみ</option>
+          <option value="names">ファイル名のみ</option>
+          <option value="both" selected>フォルダとファイル名</option>
+        </select>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="outline-extension">
+        <span>ファイル名に拡張子を含める</span>
+      </label>
       <div class="field">
         <label class="field-label" for="filename">ファイル名（.pdf）</label>
         <div class="control-group">
@@ -1016,6 +1090,52 @@ body.busy .settings {
         </div>
       </div>
     </section>
+
+    <details class="settings panel">
+      <summary>文書情報</summary>
+      <div class="field">
+        <label class="field-label" for="doc-title">タイトル</label>
+        <div class="control-group">
+          <input type="text" id="doc-title" value="" spellcheck="false">
+          <button type="button" class="control-reset" data-reset="doc-title" title="タイトルを空に戻す" aria-label="タイトルを空に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+        <p class="note">空欄のときはファイル名を使います。</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="doc-author">作成者</label>
+        <div class="control-group">
+          <input type="text" id="doc-author" value="" spellcheck="false">
+          <button type="button" class="control-reset" data-reset="doc-author" title="作成者を空に戻す" aria-label="作成者を空に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="doc-subject">件名</label>
+        <div class="control-group">
+          <input type="text" id="doc-subject" value="" spellcheck="false">
+          <button type="button" class="control-reset" data-reset="doc-subject" title="件名を空に戻す" aria-label="件名を空に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="doc-keywords">キーワード</label>
+        <div class="control-group">
+          <input type="text" id="doc-keywords" value="" spellcheck="false">
+          <button type="button" class="control-reset" data-reset="doc-keywords" title="キーワードを空に戻す" aria-label="キーワードを空に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+        <p class="note">複数ある場合はカンマで区切ります。</p>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="doc-date">
+        <span>作成日時を記録する</span>
+      </label>
+    </details>
 
     <div class="export">
       <button type="button" class="primary" id="export" disabled>PDFを作成</button>
@@ -1037,10 +1157,11 @@ body.busy .settings {
   hidden
   accept="image/jpeg,image/png,image/bmp,image/webp,image/gif,image/avif,.jpg,.jpeg,.jfif,.png,.apng,.bmp,.webp,.gif,.avif"
 >
+<input type="file" id="folder-input" multiple hidden webkitdirectory>
 
 <dialog class="help-dialog" id="help">
   <div class="help-head">
-    <h2>画像 → PDF</h2>
+    <h2>PDF Converter</h2>
     <span class="help-version" id="help-version"></span>
     <button type="button" class="help-close" id="help-close">閉じる</button>
   </div>
@@ -1049,9 +1170,12 @@ body.busy .settings {
     <ul>
       <li>画像はこのブラウザ内だけで処理され、外部へは送信されません。ページ自体の通信をCSP（Content Security Policy）で遮断しているため、送信そのものが起こりません。</li>
       <li>「メタデータを除去する」を外すと、撮影日時や位置情報を含むEXIFがPDF内に残ります。既定では取り除きます。</li>
+      <li>文書情報に入れた内容は、PDFを開けば誰でも読める形で保存されます。作成日時も既定では記録しません。</li>
       <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。「常にJPEGで再圧縮する」で小さくできます。</li>
       <li>縮小や再圧縮を行う画像は、ブラウザの上限（一辺16384px、総画素数約6700万）を超える場合、指定より小さく変換します。該当した画像は完了時に知らせます。</li>
       <li>プレビューに表示される破線は余白の位置を示す補助線で、PDFには出力されません。</li>
+      <li>しおりは並び順をもとに自動で作ります。並べ替えで同じフォルダの画像が離れた場合は、その回数だけ項目ができます。</li>
+      <li>このHTMLをファイルとして直接開いている場合、ブラウザがフォルダのドラッグ&amp;ドロップを受け付けないことがあります。その場合はツールバーの「フォルダを追加」から選んでください。</li>
     </ul>
 
     <h3>対応フォーマット</h3>
@@ -1089,6 +1213,9 @@ body.busy .settings {
       <dt>背景色</dt>
       <dd>ページ全面に塗る色。画像が収まらずにできた余りの部分だけでなく、画像の下にも敷かれるため、透過を含む画像の透明部分もこの色になります。</dd>
 
+      <dt>しおり</dt>
+      <dd>PDFの目次にあたる仕組みで、ビューワーの横に出る階層型のナビゲーションです。アウトラインとも呼びます。フォルダから追加した画像の階層と、各ページのファイル名から作ります。しおりがある場合は、開いたときにパネルを表示するよう指定しますが、この指定を無視するビューワーもあります。</dd>
+
       <dt>EXIF Orientation</dt>
       <dd>JPEGに記録された撮影時の向き。画素自体は回転しておらず「回転して表示せよ」という指示だけを持ちます。本ツールはこれを読み取り、PDF側の変換行列で向きを補正します。</dd>
 
@@ -1115,6 +1242,7 @@ body.busy .settings {
     <span class="card-index"></span>
     <div class="card-page"><canvas class="card-canvas"></canvas></div>
     <div>
+      <div class="card-folder"></div>
       <div class="card-name"></div>
       <div class="card-meta"></div>
     </div>
@@ -1140,6 +1268,9 @@ body.busy .settings {
 
 /** 1mmあたりのポイント数。 */
 const PT_PER_MM = 72 / 25.4;
+
+/** 文書情報に記録するアプリケーション名。 */
+const APP_NAME = "PDF Converter";
 
 /** 1インチあたりのポイント数。 */
 const PT_PER_INCH = 72;
@@ -1741,31 +1872,167 @@ function writePage(writer, pagesId, layout, image, rotation, background) {
 }
 
 /**
+@typedef {object} OutlineNode
+@property {string} title しおりに表示する文字列。
+@property {number} pageIndex 飛び先のページ番号。0起点。
+@property {OutlineNode[]} children 下位の項目。
+*/
+
+/**
+しおりの項目数を数える。
+@param {OutlineNode[]} nodes 対象の項目。
+@returns {number} 下位を含めた総数。
+*/
+function countOutlineNodes(nodes) {
+  return nodes.reduce((total, node) => total + 1 + countOutlineNodes(node.children), 0);
+}
+
+/**
+しおりを書き出す。
+@param {PdfWriter} writer 書き出し先。
+@param {OutlineNode[]} roots 最上位の項目。
+@param {number[]} pageIds ページのオブジェクト番号。
+@returns {number} しおりのルートのオブジェクト番号。項目が無ければ0。
+@remarks
+すべての項目を開いた状態で書き出すため、Countは下位を含めた総数になる。
+飛び先は /Fit とし、ページ全体が見えるようにする。
+*/
+function writeOutline(writer, roots, pageIds) {
+  if (roots.length === 0) return 0;
+  const rootId = writer.allocate();
+
+  /**
+  オブジェクト番号と前後の関係を割り当てる。
+  @param {OutlineNode[]} nodes 対象の項目。
+  @param {number} parentId 親のオブジェクト番号。
+  @returns {number[]} 割り当てた番号。
+  */
+  const assign = (nodes, parentId) => {
+    const ids = nodes.map(() => writer.allocate());
+    nodes.forEach((node, index) => {
+      node.id = ids[index];
+      node.parentId = parentId;
+      node.prevId = index > 0 ? ids[index - 1] : 0;
+      node.nextId = index < ids.length - 1 ? ids[index + 1] : 0;
+      node.childIds = assign(node.children, ids[index]);
+    });
+    return ids;
+  };
+  const rootIds = assign(roots, rootId);
+
+  /**
+  項目を書き出す。
+  @param {OutlineNode[]} nodes 対象の項目。
+  */
+  const write = (nodes) => {
+    for (const node of nodes) {
+      const parts = [`/Title ${pdfTextString(node.title)}`, `/Parent ${node.parentId} 0 R`];
+      if (node.prevId) parts.push(`/Prev ${node.prevId} 0 R`);
+      if (node.nextId) parts.push(`/Next ${node.nextId} 0 R`);
+      if (node.childIds.length > 0) {
+        parts.push(`/First ${node.childIds[0]} 0 R`);
+        parts.push(`/Last ${node.childIds[node.childIds.length - 1]} 0 R`);
+        parts.push(`/Count ${countOutlineNodes(node.children)}`);
+      }
+      const page = pageIds[Math.min(node.pageIndex, pageIds.length - 1)];
+      parts.push(`/Dest [${page} 0 R /Fit]`);
+      writer.writeObject(node.id, `<< ${parts.join(" ")} >>`);
+      write(node.children);
+    }
+  };
+  write(roots);
+
+  writer.writeObject(
+    rootId,
+    `<< /Type /Outlines /First ${rootIds[0]} 0 R`
+        + ` /Last ${rootIds[rootIds.length - 1]} 0 R`
+        + ` /Count ${countOutlineNodes(roots)} >>`
+  );
+  return rootId;
+}
+
+/**
+@typedef {object} DocumentInfo
+@property {string} title タイトル。
+@property {string} author 作成者。
+@property {string} subject 件名。
+@property {string} keywords キーワード。
+@property {Date|null} created 作成日時。記録しない場合はnull。
+*/
+
+/**
+日時をPDFの表記にする。
+@param {Date} date 対象の日時。
+@returns {string} "(D:YYYYMMDDHHmmSS+09'00')" 形式の文字列。
+*/
+function pdfDate(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  const offset = -date.getTimezoneOffset();
+  const sign = offset < 0 ? "-" : "+";
+  const absolute = Math.abs(offset);
+  return `(D:${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+      + `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+      + `${sign}${pad(Math.floor(absolute / 60))}'${pad(absolute % 60)}')`;
+}
+
+/**
+文書情報を書き出す。
+@param {PdfWriter} writer 書き出し先。
+@param {DocumentInfo} info 文書情報。
+@returns {number} 文書情報のオブジェクト番号。
+@remarks 空の項目は書き出さない。
+*/
+function writeDocumentInfo(writer, info) {
+  const parts = [];
+  for (const [key, value] of [
+    ["Title", info.title],
+    ["Author", info.author],
+    ["Subject", info.subject],
+    ["Keywords", info.keywords]
+  ]) {
+    if (value) parts.push(`/${key} ${pdfTextString(value)}`);
+  }
+  parts.push(`/Creator ${pdfTextString(APP_NAME)}`, `/Producer ${pdfTextString(APP_NAME)}`);
+  if (info.created) {
+    const stamp = pdfDate(info.created);
+    parts.push(`/CreationDate ${stamp}`, `/ModDate ${stamp}`);
+  }
+  const id = writer.allocate();
+  writer.writeObject(id, `<< ${parts.join(" ")} >>`);
+  return id;
+}
+
+/**
 カタログ、ページツリー、文書情報を書き出してPDFを完成させる。
 @param {PdfWriter} writer 書き出し先。
 @param {number} pagesId 確保済みのページツリーのオブジェクト番号。
 @param {number[]} pageIds ページのオブジェクト番号。
-@param {string} title 文書タイトル。
+@param {DocumentInfo} info 文書情報。
+@param {OutlineNode[]} outline しおりの項目。空なら作成しない。
 @returns {Blob} PDFデータ。
 */
-function finishDocument(writer, pagesId, pageIds, title) {
+function finishDocument(writer, pagesId, pageIds, info, outline) {
   writer.writeObject(
     pagesId,
     `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`
   );
+
+  const outlineId = writeOutline(writer, outline, pageIds);
   const catalogId = writer.allocate();
-  writer.writeObject(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
-  const infoId = writer.allocate();
-  writer.writeObject(infoId, `<< /Title ${pdfTextString(title)} /Producer (Image to PDF) >>`);
-  return writer.finish(catalogId, infoId);
+  // しおりがある場合は、開いたときにしおりパネルを表示する
+  const outlineParts = outlineId === 0
+      ? ""
+      : ` /Outlines ${outlineId} 0 R /PageMode /UseOutlines`;
+  writer.writeObject(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R${outlineParts} >>`);
+  return writer.finish(catalogId, writeDocumentInfo(writer, info));
 }
 
 // #endregion core
 
 // #region app
 
-/** 表示するバージョン。 */
-const APP_VERSION = "v0.1.0（フェーズ1）";
+/** 表示するバージョン。出力のたびに内容に応じて改定する。 */
+const APP_VERSION = "0.6.1";
 
 /**
 値を任意に変更できる設定項目の既定値。
@@ -1778,7 +2045,11 @@ const CONTROL_DEFAULTS = {
   "max-dpi": "0",
   "max-edge": "0",
   "jpeg-quality": "90",
-  filename: "images"
+  filename: "images",
+  "doc-title": "",
+  "doc-author": "",
+  "doc-subject": "",
+  "doc-keywords": ""
 };
 
 /** キャンバスの一辺の上限（px）。これを超える画像は縮小して処理する。 */
@@ -1809,6 +2080,7 @@ const EXCLUDED_TYPES = ["image/svg+xml", "image/tiff", "image/heic", "image/heif
 @typedef {object} Item
 @property {number} id 識別番号。
 @property {File} file 元ファイル。
+@property {string[]} folders 所属するフォルダ。上位から順に並ぶ。
 @property {number} pixelW 向き補正後の幅（px）。
 @property {number} pixelH 向き補正後の高さ（px）。
 @property {number} rotation ユーザー指定の回転角（0、90、180、270）。
@@ -1853,6 +2125,7 @@ const dom = {
   empty: $("#empty"),
   status: $("#status"),
   fileInput: $("#file-input"),
+  folderInput: $("#folder-input"),
   exportButton: $("#export"),
   progress: $("#progress"),
   progressBar: $("#progress-bar"),
@@ -1878,6 +2151,21 @@ function getSettings() {
     quality: readNumber("#jpeg-quality", 1, 100, 90),
     recompress: $("#recompress").checked,
     stripMetadata: $("#strip-metadata").checked
+  };
+}
+
+/**
+入力された文書情報を取得する。
+@param {string} fallbackTitle タイトルが空の場合に使う文字列。
+@returns {DocumentInfo} 文書情報。
+*/
+function getDocumentInfo(fallbackTitle) {
+  return {
+    title: $("#doc-title").value.trim() || fallbackTitle,
+    author: $("#doc-author").value.trim(),
+    subject: $("#doc-subject").value.trim(),
+    keywords: $("#doc-keywords").value.trim(),
+    created: $("#doc-date").checked ? new Date() : null
   };
 }
 
@@ -1947,17 +2235,31 @@ function listNames(names) {
 }
 
 /**
+@typedef {object} Entry
+@property {File} file 元ファイル。
+@property {string[]} folders 所属するフォルダ。上位から順に並ぶ。
+*/
+
+/**
 ファイルを一覧に追加する。
 @param {Iterable<File>} files 追加するファイル。
 */
 function addFiles(files) {
+  addEntries([...files].map((file) => ({file, folders: []})));
+}
+
+/**
+フォルダ情報を伴うファイルを一覧に追加する。
+@param {Entry[]} entries 追加する項目。
+*/
+function addEntries(entries) {
   const rejected = [];
-  for (const file of files) {
-    if (!isSupportedFile(file)) {
-      rejected.push(file.name);
+  for (const entry of entries) {
+    if (!isSupportedFile(entry.file)) {
+      rejected.push(entry.file.name);
       continue;
     }
-    const item = createItem(file);
+    const item = createItem(entry.file, entry.folders);
     state.items.push(item);
     loadQueue.push(item);
   }
@@ -1969,15 +2271,26 @@ function addFiles(files) {
 }
 
 /**
+並べ替えに使う経路を組み立てる。
+@param {Item} item 対象の項目。
+@returns {string} フォルダとファイル名をつないだ文字列。
+*/
+function itemPath(item) {
+  return [...item.folders, item.file.name].join("/");
+}
+
+/**
 項目とカード要素を作成する。
 @param {File} file 元ファイル。
+@param {string[]} folders 所属するフォルダ。
 @returns {Item} 作成した項目。
 */
-function createItem(file) {
+function createItem(file, folders) {
   const el = dom.template.content.firstElementChild.cloneNode(true);
   const item = {
     id: state.nextId++,
     file,
+    folders,
     pixelW: 0,
     pixelH: 0,
     rotation: 0,
@@ -1988,8 +2301,9 @@ function createItem(file) {
   };
   el.dataset.id = String(item.id);
   el.querySelector(".card-name").textContent = file.name;
-  el.querySelector(".card-name").title = file.name;
   el.querySelector(".card-meta").textContent = "読み込み中…";
+  el.querySelector(".card-folder").textContent = folders.join(" / ");
+  el.title = itemPath(item);
 
   el.addEventListener("click", (event) => {
     const button = event.target.closest("[data-action]");
@@ -2278,10 +2592,13 @@ function removeItems(ids) {
 /**
 ファイル名で並べ替える。
 @param {boolean} descending 降順にする場合はtrue。
+@remarks
+フォルダから追加した画像は、フォルダごとにまとまるよう経路で比較する。
+しおりの構造が分断されないようにするため。
 */
 function sortByName(descending) {
   const sign = descending ? -1 : 1;
-  state.items.sort((a, b) => sign * collator.compare(a.file.name, b.file.name));
+  state.items.sort((a, b) => sign * compareSortKeys(sortKey(a), sortKey(b)));
   renderOrder();
 }
 
@@ -2543,6 +2860,236 @@ function endMarquee() {
 }
 
 /**
+ディレクトリの中身をすべて読み取る。
+@param {FileSystemDirectoryReader} reader 読み取り対象。
+@returns {Promise<FileSystemEntry[]>} 直下の項目。
+@remarks readEntriesは一度に全件を返さないため、空になるまで繰り返す。
+*/
+async function readAllEntries(reader) {
+  const entries = [];
+  for (;;) {
+    const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+    if (batch.length === 0) return entries;
+    entries.push(...batch);
+  }
+}
+
+/**
+ドロップされた項目を再帰的にたどってファイルを集める。
+@param {FileSystemEntry} entry 対象の項目。
+@param {string[]} folders ここまでのフォルダ。
+@param {Entry[]} results 集めた結果を追加する配列。
+@remarks 同じ階層ではファイルを先に、サブフォルダを後に並べる。
+*/
+async function collectEntry(entry, folders, results) {
+  if (entry.isFile) {
+    const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+    results.push({file, folders});
+    return;
+  }
+  if (!entry.isDirectory) return;
+
+  const children = await readAllEntries(entry.createReader());
+  children.sort((a, b) => {
+    if (a.isDirectory !== b.isDirectory) return a.isDirectory ? 1 : -1;
+    return collator.compare(a.name, b.name);
+  });
+  const nested = [...folders, entry.name];
+  for (const child of children) await collectEntry(child, nested, results);
+}
+
+/**
+File System Access APIのハンドルをたどってファイルを集める。
+@param {FileSystemHandle} handle 対象のハンドル。
+@param {string[]} folders ここまでのフォルダ。
+@param {Entry[]} results 集めた結果を追加する配列。
+@remarks FileSystemEntryが使えない環境のための、もう一つの経路。
+*/
+async function collectHandle(handle, folders, results) {
+  if (handle.kind === "file") {
+    results.push({file: await handle.getFile(), folders});
+    return;
+  }
+  const children = [];
+  for await (const child of handle.values()) children.push(child);
+  children.sort((a, b) => {
+    if (a.kind !== b.kind) return a.kind === "directory" ? 1 : -1;
+    return collator.compare(a.name, b.name);
+  });
+  const nested = [...folders, handle.name];
+  for (const child of children) await collectHandle(child, nested, results);
+}
+
+/**
+ファイルとして読めるか試す。
+@param {File} file 対象のファイル。
+@returns {Promise<boolean>} 読める場合はtrue。
+@remarks
+フォルダはFileとして渡されることがあるが、内容を読もうとすると失敗する。
+これを手がかりに、フォルダなのか単に空のファイルなのかを見分ける。
+*/
+async function isReadableFile(file) {
+  try {
+    await file.slice(0, 1).arrayBuffer();
+    return true;
+  }
+  catch (error) {
+    return false;
+  }
+}
+
+/**
+@typedef {object} DropResult
+@property {Entry[]} entries 読み取れたファイル。
+@property {string[]} unreadable フォルダとみられるが読み取れなかったもの。
+*/
+
+/**
+ドロップされたデータからフォルダ構造込みでファイルを集める。
+@param {DataTransfer} dataTransfer ドロップされたデータ。
+@returns {Promise<DropResult>} 集めた結果。
+@remarks
+DataTransferItemListはイベントの処理が終わると無効になるため、
+最初の待機より前に同期的に取り出しておく。
+FileSystemEntryが使えない環境に備えて、File System Access APIも順に試す。
+*/
+async function collectDroppedEntries(dataTransfer) {
+  const items = [...dataTransfer.items].filter((item) => item.kind === "file");
+  const files = [...dataTransfer.files];
+  const roots = items.map((item) => (item.webkitGetAsEntry ? item.webkitGetAsEntry() : null));
+  const handles = items.map((item) => (
+    item.getAsFileSystemHandle ? item.getAsFileSystemHandle().catch(() => null) : null
+  ));
+
+  const entries = [];
+  const unreadable = [];
+  for (let i = 0; i < Math.max(items.length, files.length); i++) {
+    if (roots[i]) {
+      try {
+        await collectEntry(roots[i], [], entries);
+        continue;
+      }
+      catch (error) {
+        console.error(error);
+      }
+    }
+    const handle = handles[i] ? await handles[i] : null;
+    if (handle) {
+      try {
+        await collectHandle(handle, [], entries);
+        continue;
+      }
+      catch (error) {
+        console.error(error);
+      }
+    }
+    const file = files[i];
+    if (!file) continue;
+    if (await isReadableFile(file)) {entries.push({file, folders: []});} else {unreadable.push(file.name);}
+  }
+  return {entries, unreadable};
+}
+
+/**
+フォルダ選択ダイアログの結果を項目に変換する。
+@param {Iterable<File>} files 選択されたファイル。
+@returns {Entry[]} 変換した項目。
+*/
+function entriesFromDirectoryInput(files) {
+  const entries = [...files].map((file) => {
+    const segments = (file.webkitRelativePath || file.name).split("/");
+    return {file, folders: segments.slice(0, -1)};
+  });
+  entries.sort((a, b) => compareSortKeys(sortKey(a), sortKey(b)));
+  return entries;
+}
+
+/**
+並べ替え用の鍵を作る。
+@param {Entry} entry 対象の項目。
+@returns {string[]} 階層ごとの比較文字列。
+@remarks
+先頭の1文字で種別を表し、同じ階層ではファイル（0）がフォルダ（1）より前に来るようにする。
+*/
+function sortKey(entry) {
+  return [...entry.folders.map((name) => `1${name}`), `0${entry.file.name}`];
+}
+
+/**
+並べ替え用の鍵を比較する。
+@param {string[]} a 比較元。
+@param {string[]} b 比較先。
+@returns {number} 比較結果。
+*/
+function compareSortKeys(a, b) {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] === b[i]) continue;
+    if (a[i][0] !== b[i][0]) return a[i][0] < b[i][0] ? -1 : 1;
+    return collator.compare(a[i].slice(1), b[i].slice(1));
+  }
+  return a.length - b.length;
+}
+
+/**
+しおりに表示するファイル名を作る。
+@param {string} name ファイル名。
+@param {boolean} keepExtension 拡張子を残すかどうか。
+@returns {string} 表示する文字列。
+@remarks 名前が「.」で始まるだけの場合は、空にならないよう元のまま返す。
+*/
+function outlineLabel(name, keepExtension) {
+  if (keepExtension) return name;
+  const stripped = name.replace(/\.[^.]+$/, "");
+  return stripped === "" ? name : stripped;
+}
+
+/**
+並び順からしおりの構造を組み立てる。
+@param {Item[]} items 並び順の項目。
+@param {string} mode "none"、"folders"、"names"、"both" のいずれか。
+@param {boolean} keepExtension ファイル名に拡張子を含めるかどうか。
+@returns {OutlineNode[]} 最上位の項目。
+@remarks
+フォルダ名が前のページと変わった時点で新しい節を開く。
+並べ替えで同じフォルダが分かれた場合は、その回数だけ節ができる。
+*/
+function buildOutline(items, mode, keepExtension) {
+  if (mode === "none" || items.length === 0) return [];
+  const useFolders = mode === "folders" || mode === "both";
+  const useNames = mode === "names" || mode === "both";
+  const roots = [];
+  const open = [];
+
+  items.forEach((item, index) => {
+    const folders = useFolders ? item.folders : [];
+    let shared = 0;
+    while (
+      shared < open.length
+          && shared < folders.length
+          && open[shared].title === folders[shared]
+    ) {
+      shared++;
+    }
+    open.length = shared;
+
+    for (let depth = shared; depth < folders.length; depth++) {
+      const node = {title: folders[depth], pageIndex: index, children: []};
+      (open.length > 0 ? open[open.length - 1].children : roots).push(node);
+      open.push(node);
+    }
+    if (useNames) {
+      const leaf = {
+        title: outlineLabel(item.file.name, keepExtension),
+        pageIndex: index,
+        children: []
+      };
+      (open.length > 0 ? open[open.length - 1].children : roots).push(leaf);
+    }
+  });
+  return roots;
+}
+
+/**
 ドラッグ中のデータにファイルが含まれるか判定する。
 @param {DragEvent} event ドラッグイベント。
 @returns {boolean} ファイルを含む場合はtrue。
@@ -2765,6 +3312,7 @@ async function exportPdf() {
   const writer = new PdfWriter();
   const pagesId = writer.allocate();
   const pageIds = [];
+  const written = [];
   const failed = [];
   const clamped = [];
 
@@ -2779,6 +3327,7 @@ async function exportPdf() {
         const image = await prepareImage(item.file, output, settings);
         if (image.displayW < output.width) clamped.push(item.file.name);
         pageIds.push(writePage(writer, pagesId, layout, image, item.rotation, settings.background));
+        written.push(item);
       }
       catch (error) {
         console.error(item.file.name, error);
@@ -2788,7 +3337,12 @@ async function exportPdf() {
     if (pageIds.length === 0) throw new Error("PDFに追加できる画像がありませんでした。");
 
     setProgress(targets.length, targets.length, "ファイルを保存しています…");
-    const blob = finishDocument(writer, pagesId, pageIds, baseName);
+    const outline = buildOutline(
+      written,
+      $("#outline-mode").value,
+      $("#outline-extension").checked
+    );
+    const blob = finishDocument(writer, pagesId, pageIds, getDocumentInfo(baseName), outline);
     downloadBlob(blob, `${baseName}.pdf`);
 
     if (failed.length > 0) {
@@ -2847,6 +3401,8 @@ function syncSettingControls() {
   for (const el of document.querySelectorAll('input[name="orientation"], input[name="fit"]')) {
     el.disabled = fitToImage;
   }
+  const mode = $("#outline-mode").value;
+  $("#outline-extension").disabled = mode !== "names" && mode !== "both";
 }
 
 /** 画面のイベントを登録する。 */
@@ -2857,6 +3413,14 @@ function bindEvents() {
   dom.fileInput.addEventListener("change", () => {
     addFiles(dom.fileInput.files);
     dom.fileInput.value = "";
+  });
+
+  $("#add-folder").addEventListener("click", () => {
+    if (!state.busy) dom.folderInput.click();
+  });
+  dom.folderInput.addEventListener("change", () => {
+    addEntries(entriesFromDirectoryInput(dom.folderInput.files));
+    dom.folderInput.value = "";
   });
 
   $("#sort-asc").addEventListener("click", () => sortByName(false));
@@ -2913,6 +3477,8 @@ function bindEvents() {
   $("#settings").addEventListener("input", onSettingsChange);
   $("#settings").addEventListener("change", onSettingsChange);
 
+  $("#outline-mode").addEventListener("change", syncSettingControls);
+
   $("#help-open").addEventListener("click", () => dom.help.showModal());
   $("#help-close").addEventListener("click", () => dom.help.close());
   dom.help.addEventListener("click", (event) => {
@@ -2920,6 +3486,7 @@ function bindEvents() {
     if (event.target === dom.help) dom.help.close();
   });
   $("#help-version").textContent = APP_VERSION;
+  $("#app-version").textContent = APP_VERSION;
 
   // 何もない場所からの矩形選択
   dom.grid.addEventListener("pointerdown", startMarquee);
@@ -2966,7 +3533,25 @@ function bindEvents() {
     if (!hasFiles(event)) return;
     event.preventDefault();
     document.body.classList.remove("file-over");
-    if (!state.busy) addFiles(event.dataTransfer.files);
+    if (state.busy) return;
+
+    const files = [...event.dataTransfer.files];
+    collectDroppedEntries(event.dataTransfer)
+        .then(({entries, unreadable}) => {
+          addEntries(entries);
+          if (unreadable.length === 0) return;
+          // ローカルのHTMLでは、ブラウザがフォルダの中身を渡さないことがある
+          showMessage(
+            "フォルダの中身を読み取れませんでした。"
+                + "ツールバーの「フォルダを追加」から選んでください。\n"
+                + listNames(unreadable),
+            true
+          );
+        })
+        .catch((error) => {
+          console.error(error);
+          addFiles(files);
+        });
   });
 
   document.addEventListener("keydown", (event) => {
