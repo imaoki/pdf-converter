@@ -175,6 +175,11 @@ select {
   margin-bottom: 12px;
 }
 
+/* display指定があるとhidden属性が効かないため、個別に打ち消す */
+.field[hidden] {
+  display: none;
+}
+
 .field-label {
   font-weight: 600;
 }
@@ -220,9 +225,13 @@ input[type="number"] {
   outline-offset: -2px;
 }
 
-/* 文字入力欄はキャレットで位置が分かるため、強調表示はしない */
+/*
+文字入力欄と一覧から選ぶ欄は、キャレットや展開した一覧で状態が分かるため、
+フォーカスの強調表示はしない。
+*/
 .control-group > input[type="text"]:focus-visible,
-.control-group > input[type="number"]:focus-visible {
+.control-group > input[type="number"]:focus-visible,
+select:focus-visible {
   outline: none;
 }
 
@@ -595,6 +604,48 @@ input[type="number"] {
   background: var(--accent);
 }
 
+/* 分割の区切り。グリッドの全幅を占めて見出しのように見せる */
+.card.divider {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+  cursor: grab;
+}
+
+.card.divider.selected {
+  border-color: var(--accent);
+}
+
+.card.divider.static {
+  cursor: default;
+}
+
+.card.divider.static:hover {
+  background: var(--accent-soft);
+}
+
+.card.divider.inactive {
+  color: var(--muted);
+  background: rgba(127, 127, 127, 0.1);
+  font-weight: 400;
+}
+
+.card.divider .card-actions {
+  margin: 0 0 0 auto;
+}
+
+.divider-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .card-folder {
   overflow: hidden;
   white-space: nowrap;
@@ -905,6 +956,7 @@ body.busy .settings {
   <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 11h11a5 5 0 0 1 0 10H9"/><path d="M8 7l-4 4 4 4"/></symbol>
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-split" viewBox="0 0 24 24"><path d="M5 9V4h14v5M5 15v5h14v-5"/><path d="M2 12h20" stroke-dasharray="3 3"/></symbol>
 </svg>
 
 <header class="app-header">
@@ -921,6 +973,9 @@ body.busy .settings {
       </button>
       <button type="button" class="tool" id="add-folder" title="フォルダ内の画像をまとめて追加（階層はしおりになります）">
         <svg class="icon"><use href="#i-folder"></use></svg>フォルダを追加
+      </button>
+      <button type="button" class="tool" id="add-divider" title="選択したカードの手前に区切りを入れ、PDFを分割します">
+        <svg class="icon"><use href="#i-split"></use></svg>区切り
       </button>
       <span class="separator"></span>
       <button type="button" class="tool" id="sort-asc" title="ファイル名の昇順（数字は数値として比較）">
@@ -1068,6 +1123,35 @@ body.busy .settings {
     <section class="settings">
       <h2>出力</h2>
       <label class="field">
+        <span class="field-label">分割</span>
+        <select id="split-mode">
+          <option value="none" selected>分割しない</option>
+          <option value="manual">手動（区切り）</option>
+          <option value="pages">ページ数</option>
+          <option value="size">容量</option>
+          <option value="folder">フォルダ</option>
+        </select>
+      </label>
+      <div class="field" id="split-pages-field">
+        <label class="field-label" for="split-pages">1ファイルのページ数</label>
+        <div class="control-group">
+          <input type="number" id="split-pages" min="1" max="10000" step="1" value="50">
+          <button type="button" class="control-reset" data-reset="split-pages" title="ページ数を既定値に戻す" aria-label="ページ数を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+      </div>
+      <div class="field" id="split-size-field">
+        <label class="field-label" for="split-size">1ファイルの容量（MB）</label>
+        <div class="control-group">
+          <input type="number" id="split-size" min="1" max="4000" step="1" value="10">
+          <button type="button" class="control-reset" data-reset="split-size" title="容量を既定値に戻す" aria-label="容量を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+        <p class="note">組み立てながら判定するため、指定を多少超えることがあります。</p>
+      </div>
+      <label class="field">
         <span class="field-label">しおり</span>
         <select id="outline-mode">
           <option value="none">作成しない</option>
@@ -1174,6 +1258,7 @@ body.busy .settings {
       <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。「常にJPEGで再圧縮する」で小さくできます。</li>
       <li>縮小や再圧縮を行う画像は、ブラウザの上限（一辺16384px、総画素数約6700万）を超える場合、指定より小さく変換します。該当した画像は完了時に知らせます。</li>
       <li>プレビューに表示される破線は余白の位置を示す補助線で、PDFには出力されません。</li>
+      <li>分割して2つ以上になる場合は、ZIPにまとめて渡します。ファイル名は <code>images_1.pdf</code> のような連番になります。</li>
       <li>しおりは並び順をもとに自動で作ります。並べ替えで同じフォルダの画像が離れた場合は、その回数だけ項目ができます。</li>
       <li>このHTMLをファイルとして直接開いている場合、ブラウザがフォルダのドラッグ&amp;ドロップを受け付けないことがあります。その場合はツールバーの「フォルダを追加」から選んでください。</li>
     </ul>
@@ -1216,6 +1301,15 @@ body.busy .settings {
       <dt>しおり</dt>
       <dd>PDFの目次にあたる仕組みで、ビューワーの横に出る階層型のナビゲーションです。アウトラインとも呼びます。フォルダから追加した画像の階層と、各ページのファイル名から作ります。しおりがある場合は、開いたときにパネルを表示するよう指定しますが、この指定を無視するビューワーもあります。</dd>
 
+      <dt>分割（手動）</dt>
+      <dd>ツールバーの「区切り」で、選択したカードの手前に区切りを入れます。区切りから次の区切りまでが1つのPDFになります。区切りは画像と同じように移動・削除できます。分割方式が手動以外のときは、置いたままでも使われません。</dd>
+
+      <dt>分割（容量）</dt>
+      <dd>組み立てながら大きさを見て、指定を超える手前で次のファイルへ移ります。1ページだけで上限を超える画像は、そのまま単独のPDFになります。</dd>
+
+      <dt>分割（フォルダ）</dt>
+      <dd>同じフォルダに直接入っている画像をひとまとまりにします。サブフォルダは別のPDFになります。</dd>
+
       <dt>EXIF Orientation</dt>
       <dd>JPEGに記録された撮影時の向き。画素自体は回転しておらず「回転して表示せよ」という指示だけを持ちます。本ツールはこれを読み取り、PDF側の変換行列で向きを補正します。</dd>
 
@@ -1236,6 +1330,18 @@ body.busy .settings {
     <p>Ctrl / ⌘ + A で全選択、Delete で選択した画像を削除、Esc で選択解除。何もない場所をドラッグすると矩形選択になります。</p>
   </div>
 </dialog>
+
+<template id="divider-template">
+  <div class="card divider" draggable="true">
+    <svg class="icon"><use href="#i-split"></use></svg>
+    <span class="divider-label"></span>
+    <div class="card-actions">
+      <button type="button" class="icon-button danger" data-action="remove" title="区切りを削除">
+        <svg class="icon"><use href="#i-trash"></use></svg>
+      </button>
+    </div>
+  </div>
+</template>
 
 <template id="card-template">
   <div class="card" draggable="true">
@@ -2027,12 +2133,106 @@ function finishDocument(writer, pagesId, pageIds, info, outline) {
   return writer.finish(catalogId, writeDocumentInfo(writer, info));
 }
 
+/** CRC-32の計算表。初回に作る。 */
+let crcTable = null;
+
+/**
+CRC-32を求める。
+@param {Uint8Array} bytes 対象のデータ。
+@returns {number} 32ビットの検査値。
+*/
+function crc32(bytes) {
+  if (crcTable === null) {
+    crcTable = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let value = i;
+      for (let bit = 0; bit < 8; bit++) {
+        value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+      }
+      crcTable[i] = value;
+    }
+  }
+  let crc = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) {
+    crc = crcTable[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/**
+@typedef {object} ZipFile
+@property {string} name 格納するファイル名。
+@property {Uint8Array} data 内容。
+*/
+
+/**
+ZIPファイルを組み立てる。
+@param {ZipFile[]} files 格納するファイル。
+@param {Date} date 更新日時。
+@returns {Blob} ZIPデータ。
+@remarks
+中身はすでに圧縮済みのPDFなので、無圧縮（stored）で格納する。
+ファイル名はUTF-8とし、汎用フラグの11ビット目で明示する。
+*/
+function buildZip(files, date) {
+  const encoder = new TextEncoder();
+  const parts = [];
+  const directory = [];
+  const time = ((date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1)) & 0xffff;
+  const day = (((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()) & 0xffff;
+  let offset = 0;
+
+  for (const file of files) {
+    const name = encoder.encode(file.name);
+    const crc = crc32(file.data);
+
+    const header = new DataView(new ArrayBuffer(30));
+    header.setUint32(0, 0x04034b50, true);
+    header.setUint16(4, 20, true);
+    header.setUint16(6, 0x0800, true);
+    header.setUint16(8, 0, true);
+    header.setUint16(10, time, true);
+    header.setUint16(12, day, true);
+    header.setUint32(14, crc, true);
+    header.setUint32(18, file.data.length, true);
+    header.setUint32(22, file.data.length, true);
+    header.setUint16(26, name.length, true);
+    header.setUint16(28, 0, true);
+    parts.push(new Uint8Array(header.buffer), name, file.data);
+
+    const entry = new DataView(new ArrayBuffer(46));
+    entry.setUint32(0, 0x02014b50, true);
+    entry.setUint16(4, 20, true);
+    entry.setUint16(6, 20, true);
+    entry.setUint16(8, 0x0800, true);
+    entry.setUint16(10, 0, true);
+    entry.setUint16(12, time, true);
+    entry.setUint16(14, day, true);
+    entry.setUint32(16, crc, true);
+    entry.setUint32(20, file.data.length, true);
+    entry.setUint32(24, file.data.length, true);
+    entry.setUint16(28, name.length, true);
+    entry.setUint32(42, offset, true);
+    directory.push(new Uint8Array(entry.buffer), name);
+    offset += 30 + name.length + file.data.length;
+  }
+
+  const directorySize = directory.reduce((sum, part) => sum + part.length, 0);
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, files.length, true);
+  end.setUint16(10, files.length, true);
+  end.setUint32(12, directorySize, true);
+  end.setUint32(16, offset, true);
+  return new Blob([...parts, ...directory, new Uint8Array(end.buffer)], {type: "application/zip"});
+}
+
 // #endregion core
 
 // #region app
 
 /** 表示するバージョン。出力のたびに内容に応じて改定する。 */
-const APP_VERSION = "0.6.1";
+const APP_VERSION = "0.7.1";
 
 /**
 値を任意に変更できる設定項目の既定値。
@@ -2049,7 +2249,9 @@ const CONTROL_DEFAULTS = {
   "doc-title": "",
   "doc-author": "",
   "doc-subject": "",
-  "doc-keywords": ""
+  "doc-keywords": "",
+  "split-pages": "50",
+  "split-size": "10"
 };
 
 /** キャンバスの一辺の上限（px）。これを超える画像は縮小して処理する。 */
@@ -2079,7 +2281,8 @@ const EXCLUDED_TYPES = ["image/svg+xml", "image/tiff", "image/heic", "image/heif
 /**
 @typedef {object} Item
 @property {number} id 識別番号。
-@property {File} file 元ファイル。
+@property {string} kind "image" または "divider"。
+@property {File} file 元ファイル。区切りでは未使用。
 @property {string[]} folders 所属するフォルダ。上位から順に並ぶ。
 @property {number} pixelW 向き補正後の幅（px）。
 @property {number} pixelH 向き補正後の高さ（px）。
@@ -2131,8 +2334,23 @@ const dom = {
   progressBar: $("#progress-bar"),
   progressLabel: $("#progress-label"),
   message: $("#message"),
-  template: $("#card-template")
+  template: $("#card-template"),
+  dividerTemplate: $("#divider-template"),
+  firstGroup: createFirstGroupHeader()
 };
+
+/**
+先頭のファイルを示す見出しを作る。
+@returns {HTMLElement} 作成した要素。
+@remarks 区切りと同じ見た目にするが、移動も削除もできない。
+*/
+function createFirstGroupHeader() {
+  const el = $("#divider-template").content.firstElementChild.cloneNode(true);
+  el.removeAttribute("draggable");
+  el.classList.add("static");
+  el.querySelector(".card-actions").remove();
+  return el;
+}
 
 /**
 現在のページ設定を取得する。
@@ -2150,7 +2368,9 @@ function getSettings() {
     maxEdge: readNumber("#max-edge", 0, 60000, 0),
     quality: readNumber("#jpeg-quality", 1, 100, 90),
     recompress: $("#recompress").checked,
-    stripMetadata: $("#strip-metadata").checked
+    stripMetadata: $("#strip-metadata").checked,
+    splitPages: readNumber("#split-pages", 1, 10000, 50),
+    splitSizeMb: readNumber("#split-size", 1, 4000, 10)
   };
 }
 
@@ -2289,6 +2509,7 @@ function createItem(file, folders) {
   const el = dom.template.content.firstElementChild.cloneNode(true);
   const item = {
     id: state.nextId++,
+    kind: "image",
     file,
     folders,
     pixelW: 0,
@@ -2318,6 +2539,40 @@ function createItem(file, folders) {
 
   drawCard(item, getSettings());
   return item;
+}
+
+/**
+区切りの項目とカード要素を作成する。
+@returns {Item} 作成した項目。
+*/
+function createDivider() {
+  const el = dom.dividerTemplate.content.firstElementChild.cloneNode(true);
+  const item = {id: state.nextId++, kind: "divider", folders: [], el};
+  el.dataset.id = String(item.id);
+
+  el.addEventListener("click", (event) => {
+    if (event.target.closest("[data-action]")) {
+      removeItems([item.id]);
+      return;
+    }
+    selectByClick(item, event);
+  });
+  el.addEventListener("dragstart", (event) => onDragStart(item, event));
+  el.addEventListener("dragend", onDragEnd);
+  return item;
+}
+
+/**
+選択位置に区切りを挿入する。
+@remarks 何も選択していない場合は末尾に置く。分割方式も手動へ切り替える。
+*/
+function insertDivider() {
+  const first = state.items.findIndex((item) => state.selected.has(item.id));
+  const at = first < 0 ? state.items.length : first;
+  state.items.splice(at, 0, createDivider());
+  $("#split-mode").value = "manual";
+  syncSettingControls();
+  renderOrder();
 }
 
 /** 読み込み待ちの項目を同時実行数の範囲で処理する。 */
@@ -2451,30 +2706,57 @@ function drawCard(item, settings) {
 /** すべてのカードを再描画する。 */
 function redrawAll() {
   const settings = getSettings();
-  for (const item of state.items) drawCard(item, settings);
+  for (const item of state.items) {
+    if (item.kind === "image") drawCard(item, settings);
+  }
 }
 
-/** カードの並び順、番号、選択状態を画面に反映する。 */
+/**
+カードの並び順、番号、選択状態を画面に反映する。
+@remarks
+区切りがある場合は、通し番号をファイルごとに振り直す。
+出力されるPDFのページ番号と一致させるため。
+*/
 function renderOrder() {
   const fragment = document.createDocumentFragment();
-  state.items.forEach((item, index) => {
-    item.el.querySelector(".card-index").textContent = String(index + 1);
+  const manual = $("#split-mode").value === "manual";
+  const hasDivider = state.items.some((item) => item.kind === "divider");
+  if (hasDivider && state.items[0].kind !== "divider") {
+    dom.firstGroup.querySelector(".divider-label").textContent = manual ? "ファイル 1" : "区切り（未使用）";
+    dom.firstGroup.classList.toggle("inactive", !manual);
+    fragment.append(dom.firstGroup);
+  }
+
+  let fileNumber = 1;
+  let pageNumber = 1;
+  for (const item of state.items) {
+    if (item.kind === "divider") {
+      fileNumber++;
+      if (manual) pageNumber = 1;
+      item.el.querySelector(".divider-label").textContent =
+          manual ? `ファイル ${fileNumber}` : "区切り（未使用）";
+      item.el.classList.toggle("inactive", !manual);
+    }
+    else {
+      item.el.querySelector(".card-index").textContent = String(pageNumber);
+      pageNumber++;
+    }
     item.el.classList.toggle("selected", state.selected.has(item.id));
     fragment.append(item.el);
-  });
+  }
   dom.grid.replaceChildren(fragment);
   updateStatus();
 }
 
 /** ツールバーと出力ボタンの状態を更新する。 */
 function updateStatus() {
-  const total = state.items.length;
+  const images = state.items.filter((item) => item.kind === "image").length;
   const loading = activeLoads + loadQueue.length;
   const selectedCount = state.selected.size;
 
-  dom.empty.hidden = total > 0;
-  const parts = [`${total} 枚`];
-  if (selectedCount > 0) parts.push(`${selectedCount} 枚選択中`);
+  dom.empty.hidden = state.items.length > 0;
+  const parts = [`${images} 枚`];
+  if (selectedCount > 0) parts.push(`${selectedCount} 件選択中`);
   if (loading > 0) parts.push(`読み込み中 ${loading}`);
   dom.status.textContent = parts.join("／");
 
@@ -2482,9 +2764,10 @@ function updateStatus() {
     $(id).disabled = selectedCount === 0;
   }
   for (const id of ["#sort-asc", "#sort-desc", "#clear"]) {
-    $(id).disabled = total === 0;
+    $(id).disabled = state.items.length === 0;
   }
-  dom.exportButton.disabled = state.busy || total === 0 || loading > 0;
+  $("#add-divider").disabled = state.busy || images === 0;
+  dom.exportButton.disabled = state.busy || images === 0 || loading > 0;
 }
 
 /**
@@ -2551,7 +2834,7 @@ function runCardAction(item, action) {
 function rotateItems(ids, delta) {
   const settings = getSettings();
   for (const item of state.items) {
-    if (!ids.includes(item.id)) continue;
+    if (item.kind !== "image" || !ids.includes(item.id)) continue;
     item.rotation = (item.rotation + delta + 360) % 360;
     drawCard(item, settings);
   }
@@ -2566,7 +2849,7 @@ function resetItems(ids) {
   const settings = getSettings();
   const targets = new Set(ids);
   for (const item of state.items) {
-    if (!targets.has(item.id) || item.rotation === 0) continue;
+    if (item.kind !== "image" || !targets.has(item.id) || item.rotation === 0) continue;
     item.rotation = 0;
     drawCard(item, settings);
   }
@@ -2598,7 +2881,24 @@ function removeItems(ids) {
 */
 function sortByName(descending) {
   const sign = descending ? -1 : 1;
-  state.items.sort((a, b) => sign * compareSortKeys(sortKey(a), sortKey(b)));
+  const sorted = [];
+  let block = [];
+  const flush = () => {
+    block.sort((a, b) => sign * compareSortKeys(sortKey(a), sortKey(b)));
+    sorted.push(...block);
+    block = [];
+  };
+  // 区切りは動かさず、その間だけを並べ替える
+  for (const item of state.items) {
+    if (item.kind === "divider") {
+      flush();
+      sorted.push(item);
+      continue;
+    }
+    block.push(item);
+  }
+  flush();
+  state.items = sorted;
   renderOrder();
 }
 
@@ -3090,6 +3390,51 @@ function buildOutline(items, mode, keepExtension) {
 }
 
 /**
+出力するPDFごとに項目を分ける。
+@param {Item[]} items 並び順の項目。区切りを含む。
+@param {string} mode "none"、"manual"、"pages"、"size"、"folder" のいずれか。
+@param {PageSettings} settings ページ設定。
+@returns {Item[][]} PDFごとの画像。
+@remarks
+容量での分割は組み立ててみないと決まらないため、ここでは分けずに1つにまとめる。
+実際の区切りは書き出しの途中で判定する。
+*/
+function buildGroups(items, mode, settings) {
+  const images = items.filter((item) => item.kind === "image");
+  if (mode === "manual") {
+    const groups = [[]];
+    for (const item of items) {
+      if (item.kind === "divider") {
+        if (groups[groups.length - 1].length > 0) groups.push([]);
+        continue;
+      }
+      groups[groups.length - 1].push(item);
+    }
+    return groups.filter((group) => group.length > 0);
+  }
+  if (mode === "pages") {
+    const groups = [];
+    for (let i = 0; i < images.length; i += settings.splitPages) {
+      groups.push(images.slice(i, i + settings.splitPages));
+    }
+    return groups;
+  }
+  if (mode === "folder") {
+    // 同じフォルダに直接入っている画像をひとまとまりにする
+    const groups = [];
+    let previous = null;
+    for (const item of images) {
+      const path = item.folders.join("/");
+      if (groups.length === 0 || path !== previous) groups.push([]);
+      groups[groups.length - 1].push(item);
+      previous = path;
+    }
+    return groups;
+  }
+  return images.length > 0 ? [images] : [];
+}
+
+/**
 ドラッグ中のデータにファイルが含まれるか判定する。
 @param {DragEvent} event ドラッグイベント。
 @returns {boolean} ファイルを含む場合はtrue。
@@ -3303,56 +3648,110 @@ function nextFrame() {
 
 /** PDFを作成してダウンロードする。 */
 async function exportPdf() {
-  const targets = state.items.filter((item) => item.status === "ready");
-  if (targets.length === 0 || state.busy) return;
+  const ready = state.items.filter((item) => item.kind !== "image" || item.status === "ready");
+  const total = ready.filter((item) => item.kind === "image").length;
+  if (total === 0 || state.busy) return;
 
   setBusy(true);
   const settings = getSettings();
   const baseName = sanitizeFilename($("#filename").value);
-  const writer = new PdfWriter();
-  const pagesId = writer.allocate();
-  const pageIds = [];
-  const written = [];
+  const mode = $("#split-mode").value;
+  const sizeLimit = mode === "size" ? Math.round(settings.splitSizeMb * 1024 * 1024) : 0;
+  const groups = buildGroups(ready, mode, settings);
+
+  /** @type {{writer: PdfWriter, pagesId: number, pageIds: number[], written: Item[]}[]} */
+  const documents = [];
   const failed = [];
   const clamped = [];
+  let current = null;
+  let done = 0;
+
+  /** 新しい文書の組み立てを始める。 */
+  const start = () => {
+    const writer = new PdfWriter();
+    current = {writer, pagesId: writer.allocate(), pageIds: [], written: []};
+  };
+  /** 組み立て中の文書を確定する。 */
+  const close = () => {
+    if (current && current.pageIds.length > 0) documents.push(current);
+    current = null;
+  };
 
   try {
-    for (let i = 0; i < targets.length; i++) {
-      const item = targets[i];
-      setProgress(i, targets.length, `${i + 1} / ${targets.length}　${item.file.name}`);
-      await nextFrame();
-      try {
-        const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
-        const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
-        const image = await prepareImage(item.file, output, settings);
-        if (image.displayW < output.width) clamped.push(item.file.name);
-        pageIds.push(writePage(writer, pagesId, layout, image, item.rotation, settings.background));
-        written.push(item);
-      }
-      catch (error) {
-        console.error(item.file.name, error);
-        failed.push(item.file.name);
+    for (const group of groups) {
+      close();
+      for (const item of group) {
+        setProgress(done, total, `${done + 1} / ${total}　${item.file.name}`);
+        await nextFrame();
+        try {
+          const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
+          const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
+          const image = await prepareImage(item.file, output, settings);
+          if (image.displayW < output.width) clamped.push(item.file.name);
+
+          const bytes = image.data.length + (image.alpha === null ? 0 : image.alpha.length);
+          if (current === null) {
+            start();
+          }
+          else if (sizeLimit > 0 && current.writer.offset + bytes > sizeLimit) {
+            // 上限を超えるページは次のファイルへ回す。1ページ目は超えても入れる
+            close();
+            start();
+          }
+          current.pageIds.push(
+            writePage(current.writer, current.pagesId, layout, image, item.rotation, settings.background)
+          );
+          current.written.push(item);
+        }
+        catch (error) {
+          console.error(item.file.name, error);
+          failed.push(item.file.name);
+        }
+        done++;
       }
     }
-    if (pageIds.length === 0) throw new Error("PDFに追加できる画像がありませんでした。");
+    close();
+    if (documents.length === 0) throw new Error("PDFに追加できる画像がありませんでした。");
 
-    setProgress(targets.length, targets.length, "ファイルを保存しています…");
-    const outline = buildOutline(
-      written,
-      $("#outline-mode").value,
-      $("#outline-extension").checked
-    );
-    const blob = finishDocument(writer, pagesId, pageIds, getDocumentInfo(baseName), outline);
-    downloadBlob(blob, `${baseName}.pdf`);
+    setProgress(total, total, "ファイルを保存しています…");
+    await nextFrame();
+    const outlineMode = $("#outline-mode").value;
+    const keepExtension = $("#outline-extension").checked;
+    const digits = String(documents.length).length;
+    const outputs = documents.map((entry, index) => {
+      const name = documents.length === 1
+          ? baseName
+          : `${baseName}_${String(index + 1).padStart(digits, "0")}`;
+      const outline = buildOutline(entry.written, outlineMode, keepExtension);
+      return {
+        name: `${name}.pdf`,
+        blob: finishDocument(entry.writer, entry.pagesId, entry.pageIds, getDocumentInfo(name), outline)
+      };
+    });
 
-    if (failed.length > 0) {
-      showMessage(`${pageIds.length} ページのPDFを作成しました。次の画像は変換できず除外しました。\n${listNames(failed)}`, true);
-    }
-    else if (clamped.length > 0) {
-      showMessage(`${pageIds.length} ページのPDFを作成しました。次の画像はブラウザの上限を超えるため、指定より小さく変換しました。\n${listNames(clamped)}`, true);
+    const pages = documents.reduce((sum, entry) => sum + entry.pageIds.length, 0);
+    if (outputs.length === 1) {
+      downloadBlob(outputs[0].blob, outputs[0].name);
     }
     else {
-      showMessage(`${pageIds.length} ページのPDFを作成しました。`);
+      const files = [];
+      for (const output of outputs) {
+        files.push({name: output.name, data: new Uint8Array(await output.blob.arrayBuffer())});
+      }
+      downloadBlob(buildZip(files, new Date()), `${baseName}.zip`);
+    }
+
+    const summary = outputs.length === 1
+        ? `${pages} ページのPDFを作成しました。`
+        : `${pages} ページを ${outputs.length} 個のPDFに分け、ZIPにまとめました。`;
+    if (failed.length > 0) {
+      showMessage(`${summary}次の画像は変換できず除外しました。\n${listNames(failed)}`, true);
+    }
+    else if (clamped.length > 0) {
+      showMessage(`${summary}次の画像はブラウザの上限を超えるため、指定より小さく変換しました。\n${listNames(clamped)}`, true);
+    }
+    else {
+      showMessage(summary);
     }
   }
   catch (error) {
@@ -3401,8 +3800,12 @@ function syncSettingControls() {
   for (const el of document.querySelectorAll('input[name="orientation"], input[name="fit"]')) {
     el.disabled = fitToImage;
   }
-  const mode = $("#outline-mode").value;
-  $("#outline-extension").disabled = mode !== "names" && mode !== "both";
+  const outlineMode = $("#outline-mode").value;
+  $("#outline-extension").disabled = outlineMode !== "names" && outlineMode !== "both";
+
+  const splitMode = $("#split-mode").value;
+  $("#split-pages-field").hidden = splitMode !== "pages";
+  $("#split-size-field").hidden = splitMode !== "size";
 }
 
 /** 画面のイベントを登録する。 */
@@ -3478,6 +3881,12 @@ function bindEvents() {
   $("#settings").addEventListener("change", onSettingsChange);
 
   $("#outline-mode").addEventListener("change", syncSettingControls);
+  $("#add-divider").addEventListener("click", insertDivider);
+  $("#split-mode").addEventListener("change", () => {
+    syncSettingControls();
+    // 区切りの表示（有効・無効）が変わる
+    renderOrder();
+  });
 
   $("#help-open").addEventListener("click", () => dom.help.showModal());
   $("#help-close").addEventListener("click", () => dom.help.close());
