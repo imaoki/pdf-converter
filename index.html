@@ -1,0 +1,2673 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<!--
+画像の外部送信を防ぐため、通信系の読み込みをすべて遮断する。
+アイコンフォント等を使う場合は style-src と font-src にそのホストだけを追加する。
+connect-src と img-src は変更しないこと。
+-->
+<meta
+  http-equiv="Content-Security-Policy"
+  content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; form-action 'none'; base-uri 'none'"
+>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画像 → PDF</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --desk: #d9dee3;
+  --panel: #f4f6f8;
+  --line: #c9d0d7;
+  --text: #1f2429;
+  --muted: #66707a;
+  --accent: #2f4fc4;
+  --accent-soft: rgba(47, 79, 196, 0.12);
+  --danger: #b3261e;
+  --paper-shadow: 0 0 0 1px rgba(20, 30, 40, 0.08), 0 2px 6px rgba(20, 30, 40, 0.18);
+  --card-gap: 12px;
+  --card-border: 2px;
+  --drop-line: 4px;
+  /*
+  挿入線をカードの隙間の中央に置くための、カードからのはみ出し量。
+  擬似要素の基準はパディングボックスなので、境界線の幅を足して相殺する。
+  隙間の左右どちらから見ても同じ位置になるため、境界を跨いでも線がずれない。
+  */
+  --drop-offset: calc(var(--card-border) + (var(--card-gap) + var(--drop-line)) / 2);
+  --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", "Meiryo UI", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --desk: #16191d;
+    --panel: #20242a;
+    --line: #353b43;
+    --text: #e3e7ec;
+    --muted: #8d97a2;
+    --accent: #7f97ff;
+    --accent-soft: rgba(127, 151, 255, 0.16);
+    --danger: #ff8a80;
+    --paper-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.55);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--desk);
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sprite {
+  display: none;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ヘッダー */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.help-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  padding: 0;
+  font-weight: 700;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.help-button:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 本体レイアウト */
+.app-body {
+  display: grid;
+  grid-template-columns: 1fr 264px;
+  min-height: 0;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px;
+  overflow-y: auto;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+
+.sidebar h2 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.field-label {
+  font-weight: 600;
+}
+
+select,
+input[type="text"],
+input[type="number"] {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  background: var(--desk);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+/*
+複合コントロール。
+値を任意に変更できる設定項目は、入力欄と単位、リセットボタンを一続きの枠に収める。
+外側の角だけを丸め、内側の境目は1本の区切り線で見せる。
+*/
+.control-group {
+  display: flex;
+  align-items: stretch;
+  /* 1pxの隙間から下地の色を覗かせ、内側の区切り線にする */
+  gap: 1px;
+  min-height: 32px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.control-group > input,
+.control-group > button {
+  min-height: 0;
+  background: var(--desk);
+  border: 0;
+  border-radius: 0;
+}
+
+/* 枠で切り取られないよう、フォーカス表示は内側に出す */
+.control-group > *:focus-visible {
+  outline-offset: -2px;
+}
+
+/* 文字入力欄はキャレットで位置が分かるため、強調表示はしない */
+.control-group > input[type="text"]:focus-visible,
+.control-group > input[type="number"]:focus-visible {
+  outline: none;
+}
+
+.control-group > input[type="text"],
+.control-group > input[type="number"] {
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  padding: 4px 8px;
+}
+
+.control-group > input[type="color"] {
+  flex: none;
+  align-self: stretch;
+  width: 44px;
+  height: auto;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.control-group > input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.control-group > input[type="color"]::-webkit-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.control-group > input[type="color"]::-moz-color-swatch {
+  border: 0;
+  border-radius: 3px;
+}
+
+.control-reset {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  padding: 0;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.control-reset:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+#background-hex {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-transform: uppercase;
+}
+
+.segmented {
+  display: flex;
+  padding: 2px;
+  background: var(--desk);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.segmented label {
+  flex: 1;
+  position: relative;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+}
+
+.segmented span {
+  display: block;
+  padding: 4px 2px;
+  text-align: center;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.segmented input:checked + span {
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  font-weight: 600;
+}
+
+.segmented input:focus-visible + span {
+  outline: 2px solid var(--accent);
+}
+
+.segmented input:disabled + span {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.note {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.export {
+  margin-top: auto;
+  display: grid;
+  gap: 8px;
+}
+
+.primary {
+  min-height: 40px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+@media (prefers-color-scheme: dark) {
+  .primary {
+    color: #10142a;
+  }
+}
+
+.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.progress {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.progress[hidden] {
+  display: none;
+}
+
+.progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.progress-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 作業エリア */
+.workspace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tool:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.tool.danger {
+  color: var(--danger);
+}
+
+.separator {
+  width: 1px;
+  height: 20px;
+  margin: 0 6px;
+  background: var(--line);
+}
+
+.status {
+  margin-left: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.scroller {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+  gap: var(--card-gap);
+  align-content: start;
+  min-height: 100%;
+  padding: 16px;
+}
+
+.card {
+  position: relative;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: var(--card-border) solid transparent;
+  border-radius: 8px;
+  cursor: default;
+  user-select: none;
+}
+
+.card:hover {
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.card.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.card.dragging {
+  opacity: 0.4;
+}
+
+.card.drop-before::before,
+.card.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  width: var(--drop-line);
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.card.drop-before::before {
+  left: calc(-1 * var(--drop-offset));
+}
+
+.card.drop-after::after {
+  right: calc(-1 * var(--drop-offset));
+}
+
+.card-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 168px;
+}
+
+.card-canvas {
+  display: block;
+  box-shadow: var(--paper-shadow);
+}
+
+.card-index {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  min-width: 24px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--panel);
+  background: var(--text);
+  border-radius: 10px;
+}
+
+.card.selected .card-index {
+  background: var(--accent);
+}
+
+.card-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+
+.card-meta {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: -2px;
+  opacity: 0;
+}
+
+.card:hover .card-actions,
+.card.selected .card-actions,
+.card:focus-within .card-actions {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .card-actions {
+    opacity: 1;
+  }
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: var(--accent-soft);
+}
+
+.icon-button.danger {
+  color: var(--danger);
+}
+
+/* 空の状態 */
+.empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.empty[hidden] {
+  display: none;
+}
+
+.dropzone {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(460px, 100%);
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--muted);
+  background: transparent;
+  border: 2px dashed var(--line);
+  border-radius: 12px;
+  cursor: pointer;
+}
+
+.dropzone:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.dropzone .icon {
+  width: 40px;
+  height: 40px;
+  stroke-width: 1.4;
+}
+
+.dropzone strong {
+  font-size: 16px;
+  color: var(--text);
+}
+
+.dropzone p {
+  margin: 0;
+}
+
+/* ドロップ中の表示 */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 3px dashed var(--accent);
+  pointer-events: none;
+  z-index: 10;
+}
+
+body.file-over .drop-overlay {
+  display: flex;
+}
+
+body.busy .grid,
+body.busy .toolbar,
+body.busy .settings {
+  pointer-events: none;
+  opacity: 0.6;
+}
+
+/* 矩形選択 */
+.marquee {
+  position: fixed;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  pointer-events: none;
+  z-index: 15;
+}
+
+/* ヘルプ */
+.help-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.help-dialog::backdrop {
+  background: rgba(10, 14, 18, 0.45);
+}
+
+.help-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.help-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.help-version {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.help-close {
+  margin-left: auto;
+  align-self: center;
+  min-height: 30px;
+  padding: 0 14px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.help-close:hover {
+  background: var(--accent-soft);
+}
+
+.help-body {
+  padding: 4px 20px 20px;
+  overflow-y: auto;
+  max-height: calc(100vh - 136px);
+}
+
+.help-body h3 {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.help-body p {
+  margin: 0 0 8px;
+  max-width: 68ch;
+}
+
+.help-body dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.help-body dt {
+  font-weight: 700;
+}
+
+.help-body dd {
+  margin: 0;
+  max-width: 62ch;
+}
+
+.help-body ul {
+  margin: 0;
+  padding-left: 1.2em;
+  max-width: 68ch;
+}
+
+.help-body li {
+  margin-bottom: 4px;
+}
+
+.help-body code {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+@media (max-width: 760px) {
+  .help-body dl {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .help-body dd {
+    margin-bottom: 8px;
+  }
+}
+
+/* メッセージ */
+.message {
+  /* 設定ペインと重ならないよう左下に置く */
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 10px 14px;
+  white-space: pre-line;
+  color: var(--panel);
+  background: var(--text);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 20;
+}
+
+.message.error {
+  background: var(--danger);
+  color: #fff;
+}
+
+@media (max-width: 760px) {
+  body {
+    height: auto;
+  }
+
+  .app-body {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .scroller {
+    min-height: 60vh;
+  }
+}
+</style>
+</head>
+<body>
+<svg class="sprite" xmlns="http://www.w3.org/2000/svg">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-rotate-ccw" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-rotate-cw" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V4h6v2M6 6l1 14h10l1-14"/></symbol>
+  <symbol id="i-sort-asc" viewBox="0 0 24 24"><path d="M7 20V4M3 8l4-4 4 4M14 6h3M14 12h5M14 18h7"/></symbol>
+  <symbol id="i-sort-desc" viewBox="0 0 24 24"><path d="M7 4v16M3 16l4 4 4-4M14 6h7M14 12h5M14 18h3"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 11h11a5 5 0 0 1 0 10H9"/><path d="M8 7l-4 4 4 4"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+</svg>
+
+<header class="app-header">
+  <h1>画像 → PDF</h1>
+  <button type="button" class="help-button" id="help-open" title="バージョンとヘルプ" aria-label="バージョンとヘルプ">?</button>
+</header>
+
+<div class="app-body">
+  <main class="workspace">
+    <div class="toolbar">
+      <button type="button" class="tool" id="add">
+        <svg class="icon"><use href="#i-plus"></use></svg>画像を追加
+      </button>
+      <span class="separator"></span>
+      <button type="button" class="tool" id="sort-asc" title="ファイル名の昇順（数字は数値として比較）">
+        <svg class="icon"><use href="#i-sort-asc"></use></svg>名前順
+      </button>
+      <button type="button" class="tool" id="sort-desc" title="ファイル名の降順">
+        <svg class="icon"><use href="#i-sort-desc"></use></svg>逆順
+      </button>
+      <span class="separator"></span>
+      <button type="button" class="tool" id="rotate-left" title="選択した画像を左に90°回転">
+        <svg class="icon"><use href="#i-rotate-ccw"></use></svg>左回転
+      </button>
+      <button type="button" class="tool" id="rotate-right" title="選択した画像を右に90°回転">
+        <svg class="icon"><use href="#i-rotate-cw"></use></svg>右回転
+      </button>
+      <button type="button" class="tool" id="reset" title="選択した画像の回転を取り消し、初期状態に戻す">
+        <svg class="icon"><use href="#i-reset"></use></svg>リセット
+      </button>
+      <button type="button" class="tool danger" id="remove-selected" title="選択した画像を削除（Delete）">
+        <svg class="icon"><use href="#i-trash"></use></svg>削除
+      </button>
+      <span class="status" id="status"></span>
+      <button type="button" class="tool danger" id="clear">すべて削除</button>
+    </div>
+    <div class="scroller" id="scroller">
+      <div class="grid" id="grid"></div>
+      <div class="empty" id="empty">
+        <button type="button" class="dropzone" id="dropzone">
+          <svg class="icon"><use href="#i-upload"></use></svg>
+          <strong>画像をドロップ、またはクリックして選択</strong>
+          <p>JPEG、PNG、BMP、WebP、GIF、AVIF</p>
+          <p>クリックで選択、Ctrl / Shift で複数選択、ドラッグで並べ替え</p>
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="sidebar">
+    <div class="settings" id="settings">
+      <section>
+        <h2>ページ設定</h2>
+        <label class="field">
+          <span class="field-label">用紙サイズ</span>
+          <select id="page-size">
+            <option value="image">画像サイズに合わせる</option>
+            <option value="A3">A3（297 × 420 mm）</option>
+            <option value="A4" selected>A4（210 × 297 mm）</option>
+            <option value="A5">A5（148 × 210 mm）</option>
+            <option value="B4">B4 JIS（257 × 364 mm）</option>
+            <option value="B5">B5 JIS（182 × 257 mm）</option>
+            <option value="Letter">Letter（8.5 × 11 in）</option>
+            <option value="Legal">Legal（8.5 × 14 in）</option>
+          </select>
+        </label>
+        <div class="field">
+          <span class="field-label">向き</span>
+          <div class="segmented">
+            <label title="画像の縦横比に合わせて向きを決める"><input type="radio" name="orientation" value="auto" checked><span>自動</span></label>
+            <label><input type="radio" name="orientation" value="portrait"><span>縦</span></label>
+            <label><input type="radio" name="orientation" value="landscape"><span>横</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <span class="field-label">画像の収め方</span>
+          <div class="segmented">
+            <label><input type="radio" name="fit" value="contain" checked><span>全体を表示</span></label>
+            <label><input type="radio" name="fit" value="cover"><span>埋める</span></label>
+            <label><input type="radio" name="fit" value="shrink"><span>縮小のみ</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="margin">余白（mm）</label>
+          <div class="control-group">
+            <input type="number" id="margin" min="0" max="100" step="1" value="0">
+            <button type="button" class="control-reset" data-reset="margin" title="余白を既定値に戻す" aria-label="余白を既定値に戻す">
+              <svg class="icon"><use href="#i-reset"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="background-hex">背景色</label>
+          <div class="control-group">
+            <input type="color" id="background" value="#ffffff" aria-label="背景色">
+            <input type="text" id="background-hex" value="#FFFFFF" spellcheck="false" maxlength="7">
+            <button type="button" class="control-reset" data-reset="background" title="背景色を既定値に戻す" aria-label="背景色を既定値に戻す">
+              <svg class="icon"><use href="#i-reset"></use></svg>
+            </button>
+          </div>
+        </div>
+        <p class="note" id="size-note">「画像サイズに合わせる」では 1px を 1/96 インチとして計算します。</p>
+      </section>
+    </div>
+
+    <section class="settings">
+      <h2>出力</h2>
+      <div class="field">
+        <label class="field-label" for="filename">ファイル名（.pdf）</label>
+        <div class="control-group">
+          <input type="text" id="filename" value="images" spellcheck="false">
+          <button type="button" class="control-reset" data-reset="filename" title="ファイル名を既定値に戻す" aria-label="ファイル名を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <div class="export">
+      <button type="button" class="primary" id="export" disabled>PDFを作成</button>
+      <div class="progress" id="progress" hidden>
+        <progress id="progress-bar" value="0" max="1"></progress>
+        <span class="progress-label" id="progress-label"></span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="drop-overlay">ドロップして画像を追加</div>
+<div class="marquee" id="marquee" hidden></div>
+<div class="message" id="message" hidden></div>
+<input
+  type="file"
+  id="file-input"
+  multiple
+  hidden
+  accept="image/jpeg,image/png,image/bmp,image/webp,image/gif,image/avif,.jpg,.jpeg,.jfif,.png,.apng,.bmp,.webp,.gif,.avif"
+>
+
+<dialog class="help-dialog" id="help">
+  <div class="help-head">
+    <h2>画像 → PDF</h2>
+    <span class="help-version" id="help-version"></span>
+    <button type="button" class="help-close" id="help-close">閉じる</button>
+  </div>
+  <div class="help-body">
+    <h3>注意事項</h3>
+    <ul>
+      <li>画像はこのブラウザ内だけで処理され、外部へは送信されません。ページ自体の通信をCSP（Content Security Policy）で遮断しているため、送信そのものが起こりません。</li>
+      <li>JPEGは再圧縮せずそのまま埋め込むため、EXIFなどのメタデータも現状はPDF内に残ります。撮影日時や位置情報を含む場合は注意してください。</li>
+      <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。</li>
+      <li>画素数の非常に多い画像は、ブラウザ側の上限により変換に失敗することがあります。その画像は除外して処理を続けます。</li>
+      <li>プレビューに表示される破線は余白の位置を示す補助線で、PDFには出力されません。</li>
+    </ul>
+
+    <h3>対応フォーマット</h3>
+    <p>入力はブラウザがデコードできる画像のみを扱います。JPEG、PNG、BMP、WebP、GIF、AVIF。アニメーションGIFとAPNGは先頭フレームだけを使います。WebPとAVIFは、ブラウザとそのバージョンによって対応状況が異なります。TIFF、HEIC、SVGは対象外です。出力はPDF 1.7です。</p>
+
+    <h3>用語と単位</h3>
+    <dl>
+      <dt>pt</dt>
+      <dd>ポイント。PDFが長さに使う単位で、1pt = 1/72インチ。設定したmmはptに換算して出力します。</dd>
+
+      <dt>96 dpi</dt>
+      <dd>「画像サイズに合わせる」で使う換算。画像1pxを1/96インチとして扱うWeb標準の解像度で、3000pxの画像は約794mm幅になります。</dd>
+
+      <dt>全体を表示</dt>
+      <dd>画像全体が余白の内側に収まるように拡大・縮小します。縦横比は保たれ、余った方向に空きができます。</dd>
+
+      <dt>埋める</dt>
+      <dd>余白の内側を埋めるまで拡大し、はみ出した部分を切り落とします。</dd>
+
+      <dt>縮小のみ</dt>
+      <dd>拡大はせず、余白に入りきらない場合だけ縮小します。小さい画像が引き伸ばされません。</dd>
+
+      <dt>背景色</dt>
+      <dd>ページ全面に塗る色。画像が収まらずにできた余りの部分だけでなく、画像の下にも敷かれるため、透過を含む画像の透明部分もこの色になります。</dd>
+
+      <dt>EXIF Orientation</dt>
+      <dd>JPEGに記録された撮影時の向き。画素自体は回転しておらず「回転して表示せよ」という指示だけを持ちます。本ツールはこれを読み取り、PDF側の変換行列で向きを補正します。</dd>
+
+      <dt>DCTDecode</dt>
+      <dd>PDFがJPEGデータをそのまま保持する方式。再圧縮しないため画質が劣化しません。</dd>
+
+      <dt>FlateDecode</dt>
+      <dd>zlibによる可逆圧縮。JPEG以外の画像はこの方式で埋め込みます。</dd>
+
+      <dt>SMask</dt>
+      <dd>PDFで透過を表す仕組み。不透明度を別のグレースケール画像として保持します。透過を含む画像にだけ付きます。</dd>
+
+      <dt>自然順ソート</dt>
+      <dd>ファイル名の中の数字を数値として比較する並べ替え。<code>img2</code> が <code>img10</code> より前になります。</dd>
+    </dl>
+
+    <h3>キー操作</h3>
+    <p>Ctrl / ⌘ + A で全選択、Delete で選択した画像を削除、Esc で選択解除。何もない場所をドラッグすると矩形選択になります。</p>
+  </div>
+</dialog>
+
+<template id="card-template">
+  <div class="card" draggable="true">
+    <span class="card-index"></span>
+    <div class="card-page"><canvas class="card-canvas"></canvas></div>
+    <div>
+      <div class="card-name"></div>
+      <div class="card-meta"></div>
+    </div>
+    <div class="card-actions">
+      <button type="button" class="icon-button" data-action="rotate-left" title="左に90°回転">
+        <svg class="icon"><use href="#i-rotate-ccw"></use></svg>
+      </button>
+      <button type="button" class="icon-button" data-action="rotate-right" title="右に90°回転">
+        <svg class="icon"><use href="#i-rotate-cw"></use></svg>
+      </button>
+      <button type="button" class="icon-button danger" data-action="remove" title="削除">
+        <svg class="icon"><use href="#i-trash"></use></svg>
+      </button>
+    </div>
+  </div>
+</template>
+
+<script>
+"use strict";
+
+// #region core
+// DOMに依存しない処理。PDFの組み立てとレイアウト計算。
+
+/** 1mmあたりのポイント数。 */
+const PT_PER_MM = 72 / 25.4;
+
+/**
+画像1ピクセルあたりのポイント数。96dpi相当。
+フェーズ2でDPI設定に置き換える。
+*/
+const PT_PER_PX = 72 / 96;
+
+/**
+固定用紙サイズ。
+@type {Object<string, number[]>} 縦向きの幅と高さ（mm）。
+*/
+const PAGE_SIZES = {
+  A3: [297, 420],
+  A4: [210, 297],
+  A5: [148, 210],
+  B4: [257, 364],
+  B5: [182, 257],
+  Letter: [215.9, 279.4],
+  Legal: [215.9, 355.6]
+};
+
+/**
+@typedef {object} PageSettings
+@property {string} pageSize 用紙サイズ。"image" または PAGE_SIZES のキー。
+@property {string} orientation 向き。"auto"、"portrait"、"landscape"。
+@property {string} fit 収め方。"contain"、"cover"、"shrink"。
+@property {number} marginMm 余白（mm）。
+@property {string} background 背景色。"#RRGGBB" 形式。
+*/
+
+/**
+@typedef {object} Rect
+@property {number} x
+@property {number} y
+@property {number} w
+@property {number} h
+*/
+
+/**
+@typedef {object} Layout
+@property {number} pageW ページ幅（pt）。
+@property {number} pageH ページ高さ（pt）。
+@property {Rect} rect 画像の配置矩形。左上原点（pt）。
+@property {Rect|null} clip クリップ矩形。不要な場合はnull。
+*/
+
+/**
+@typedef {object} PdfImage
+@property {number} width 格納データの幅（px）。
+@property {number} height 格納データの高さ（px）。
+@property {number} displayW 向き補正後の幅（px）。
+@property {number} displayH 向き補正後の高さ（px）。
+@property {string} colorSpace 色空間名。
+@property {string} filter フィルター名。
+@property {Uint8Array} data 格納データ。
+@property {number[]|null} decode Decode配列。不要な場合はnull。
+@property {Uint8Array|null} alpha Flate圧縮済みのアルファ。不要な場合はnull。
+@property {number[]} matrix 格納データを正しい向きにする単位正方形内の変換。
+*/
+
+/**
+@typedef {object} JpegInfo
+@property {number} width
+@property {number} height
+@property {number} components 色成分数。
+@property {number} orientation EXIFの向き（1〜8）。
+@property {boolean} adobe Adobe APP14マーカーの有無。
+*/
+
+/**
+アフィン変換を合成する。
+@param {number[]} m2 後から適用する変換。
+@param {number[]} m1 先に適用する変換。
+@returns {number[]} m1、m2の順に適用する変換。
+*/
+function mulMatrix(m2, m1) {
+  return [
+    m2[0] * m1[0] + m2[2] * m1[1],
+    m2[1] * m1[0] + m2[3] * m1[1],
+    m2[0] * m1[2] + m2[2] * m1[3],
+    m2[1] * m1[2] + m2[3] * m1[3],
+    m2[0] * m1[4] + m2[2] * m1[5] + m2[4],
+    m2[1] * m1[4] + m2[3] * m1[5] + m2[5]
+  ];
+}
+
+/** 恒等変換。 */
+const M_IDENTITY = [1, 0, 0, 1, 0, 0];
+
+/** 単位正方形を見た目で時計回りに90°回転する変換（y軸上向き）。 */
+const M_ROT_CW = [0, -1, 1, 0, 0, 1];
+
+/** 単位正方形の左右反転。 */
+const M_FLIP_H = [-1, 0, 0, 1, 1, 0];
+
+/** 単位正方形の上下反転。 */
+const M_FLIP_V = [1, 0, 0, -1, 0, 1];
+
+/**
+単位正方形内の回転変換を返す。
+@param {number} degrees 時計回りの角度。90の倍数。
+@returns {number[]} 変換行列。
+*/
+function rotationMatrix(degrees) {
+  const steps = ((Math.round(degrees / 90) % 4) + 4) % 4;
+  let m = M_IDENTITY;
+  for (let i = 0; i < steps; i++) m = mulMatrix(M_ROT_CW, m);
+  return m;
+}
+
+/**
+EXIFの向きを補正する単位正方形内の変換を返す。
+@param {number} orientation EXIFの向き（1〜8）。
+@returns {number[]} 変換行列。
+*/
+function orientationMatrix(orientation) {
+  switch (orientation) {
+    case 2: return M_FLIP_H;
+    case 3: return rotationMatrix(180);
+    case 4: return M_FLIP_V;
+    case 5: return mulMatrix(rotationMatrix(270), M_FLIP_H);
+    case 6: return rotationMatrix(90);
+    case 7: return mulMatrix(rotationMatrix(90), M_FLIP_H);
+    case 8: return rotationMatrix(270);
+    default: return M_IDENTITY;
+  }
+}
+
+/**
+ページ内の画像配置を計算する。
+@param {number} pixelW 向き補正後の画像幅（px）。
+@param {number} pixelH 向き補正後の画像高さ（px）。
+@param {number} rotation ユーザー指定の回転角（度、時計回り）。
+@param {PageSettings} settings ページ設定。
+@returns {Layout} 配置結果。
+*/
+function computeLayout(pixelW, pixelH, rotation, settings) {
+  const swap = rotation % 180 !== 0;
+  const imgW = (swap ? pixelH : pixelW) * PT_PER_PX;
+  const imgH = (swap ? pixelW : pixelH) * PT_PER_PX;
+  const margin = Math.max(0, settings.marginMm) * PT_PER_MM;
+
+  if (settings.pageSize === "image") {
+    return {
+      pageW: imgW + margin * 2,
+      pageH: imgH + margin * 2,
+      rect: {x: margin, y: margin, w: imgW, h: imgH},
+      clip: null
+    };
+  }
+
+  const [baseW, baseH] = PAGE_SIZES[settings.pageSize];
+  const landscape = settings.orientation === "landscape"
+      || (settings.orientation === "auto" && imgW > imgH);
+  const pageW = (landscape ? baseH : baseW) * PT_PER_MM;
+  const pageH = (landscape ? baseW : baseH) * PT_PER_MM;
+  const box = {
+    x: margin,
+    y: margin,
+    w: Math.max(1, pageW - margin * 2),
+    h: Math.max(1, pageH - margin * 2)
+  };
+
+  let scale;
+  switch (settings.fit) {
+    case "cover":
+      scale = Math.max(box.w / imgW, box.h / imgH);
+      break;
+    case "shrink":
+      scale = Math.min(box.w / imgW, box.h / imgH, 1);
+      break;
+    default:
+      scale = Math.min(box.w / imgW, box.h / imgH);
+  }
+
+  const w = imgW * scale;
+  const h = imgH * scale;
+  return {
+    pageW,
+    pageH,
+    rect: {x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h},
+    clip: settings.fit === "cover" ? box : null
+  };
+}
+
+/**
+16進表記の色をPDFの色成分に変換する。
+@param {string} hex "#RRGGBB" 形式の文字列。
+@returns {number[]} 0〜1に正規化した赤、緑、青。
+*/
+function parseHexColor(hex) {
+  const value = parseInt(hex.slice(1), 16);
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255].map((channel) => channel / 255);
+}
+
+/**
+バイト列の指定位置が文字列と一致するか調べる。
+@param {Uint8Array} bytes 対象のバイト列。
+@param {number} pos 開始位置。
+@param {string} text 比較するASCII文字列。
+@returns {boolean} 一致すればtrue。
+*/
+function matchAscii(bytes, pos, text) {
+  if (pos + text.length > bytes.length) return false;
+  for (let i = 0; i < text.length; i++) {
+    if (bytes[pos + i] !== text.charCodeAt(i)) return false;
+  }
+  return true;
+}
+
+/**
+EXIF（TIFF構造）から向きを読み取る。
+@param {DataView} view ファイル全体のビュー。
+@param {number} tiff TIFFヘッダーの開始位置。
+@param {number} end セグメントの終端位置。
+@returns {number} 向き（1〜8）。読み取れない場合は1。
+*/
+function readExifOrientation(view, tiff, end) {
+  if (tiff + 8 > end) return 1;
+  const order = view.getUint16(tiff);
+  if (order !== 0x4949 && order !== 0x4d4d) return 1;
+  const little = order === 0x4949;
+  const ifd = tiff + view.getUint32(tiff + 4, little);
+  if (ifd + 2 > end) return 1;
+
+  const count = view.getUint16(ifd, little);
+  for (let i = 0; i < count; i++) {
+    const entry = ifd + 2 + i * 12;
+    if (entry + 12 > end) break;
+    if (view.getUint16(entry, little) === 0x0112) {
+      const value = view.getUint16(entry + 8, little);
+      return value >= 1 && value <= 8 ? value : 1;
+    }
+  }
+  return 1;
+}
+
+/**
+JPEGのヘッダー情報を読み取る。
+@param {Uint8Array} bytes ファイル内容。
+@returns {JpegInfo|null} 読み取り結果。PDFへそのまま埋め込めない場合はnull。
+*/
+function parseJpeg(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const info = {width: 0, height: 0, components: 0, bits: 0, orientation: 1, adobe: false};
+
+  let pos = 2;
+  while (pos + 4 <= bytes.length) {
+    if (bytes[pos] !== 0xff) return null;
+    const marker = bytes[pos + 1];
+    if (marker === 0xff) {
+      // 詰め物の0xFF
+      pos++;
+      continue;
+    }
+    pos += 2;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue;
+    if (marker === 0xd9 || marker === 0xda) break;
+
+    const length = view.getUint16(pos);
+    const segmentEnd = pos + length;
+    if (length < 2 || segmentEnd > bytes.length) return null;
+    const data = pos + 2;
+
+    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+      info.bits = bytes[data];
+      info.height = view.getUint16(data + 1);
+      info.width = view.getUint16(data + 3);
+      info.components = bytes[data + 5];
+    }
+    else if (
+      marker >= 0xc3
+          && marker <= 0xcf
+          && marker !== 0xc4
+          && marker !== 0xc8
+          && marker !== 0xcc
+    ) {
+      // 可逆・算術符号化など、PDFビューワーの対応が期待できない形式
+      return null;
+    }
+    else if (marker === 0xe1 && matchAscii(bytes, data, "Exif\0\0")) {
+      info.orientation = readExifOrientation(view, data + 6, segmentEnd);
+    }
+    else if (marker === 0xee && matchAscii(bytes, data, "Adobe")) {
+      info.adobe = true;
+    }
+    pos = segmentEnd;
+  }
+
+  const valid = info.bits === 8
+      && info.width > 0
+      && info.height > 0
+      && [1, 3, 4].includes(info.components);
+  return valid ? info : null;
+}
+
+/**
+数値をPDF用の文字列にする。
+@param {number} value 数値。
+@returns {string} 小数点以下4桁までの表現。
+*/
+function formatNumber(value) {
+  const text = Number(value.toFixed(4)).toString();
+  return text === "-0" ? "0" : text;
+}
+
+/**
+文字列をPDFのテキスト文字列（UTF-16BEの16進表記）にする。
+@param {string} text 文字列。
+@returns {string} PDFの16進文字列。
+*/
+function pdfTextString(text) {
+  let hex = "<FEFF";
+  for (let i = 0; i < text.length; i++) {
+    hex += text.charCodeAt(i).toString(16).toUpperCase().padStart(4, "0");
+  }
+  return hex + ">";
+}
+
+/**
+バイト列をzlib形式で圧縮する。
+@param {Uint8Array} bytes 圧縮するデータ。
+@returns {Promise<Uint8Array>} 圧縮済みデータ。
+*/
+async function deflate(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream("deflate"));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+/**
+PDFファイルを逐次書き出すクラス。
+*/
+class PdfWriter {
+  constructor() {
+    /** @type {Uint8Array[]} 書き出し済みのバイト列。 */
+    this.chunks = [];
+    /** @type {number} 現在のバイトオフセット。 */
+    this.offset = 0;
+    /** @type {number[]} オブジェクト番号ごとのオフセット。添字0は未使用。 */
+    this.offsets = [0];
+    /** @type {TextEncoder} */
+    this.encoder = new TextEncoder();
+
+    this.writeText("%PDF-1.7\n");
+    // バイナリを含むファイルであることを示すコメント行
+    this.writeBytes(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
+  }
+
+  /**
+  バイト列を書き出す。
+  @param {Uint8Array} bytes 書き出すデータ。
+  */
+  writeBytes(bytes) {
+    this.chunks.push(bytes);
+    this.offset += bytes.length;
+  }
+
+  /**
+  ASCII文字列を書き出す。
+  @param {string} text 書き出す文字列。
+  */
+  writeText(text) {
+    this.writeBytes(this.encoder.encode(text));
+  }
+
+  /**
+  オブジェクト番号を確保する。
+  @returns {number} 確保した番号。
+  */
+  allocate() {
+    this.offsets.push(0);
+    return this.offsets.length - 1;
+  }
+
+  /**
+  辞書などのオブジェクトを書き出す。
+  @param {number} id オブジェクト番号。
+  @param {string} body オブジェクトの内容。
+  */
+  writeObject(id, body) {
+    this.offsets[id] = this.offset;
+    this.writeText(`${id} 0 obj\n${body}\nendobj\n`);
+  }
+
+  /**
+  ストリームオブジェクトを書き出す。
+  @param {number} id オブジェクト番号。
+  @param {string} dict 辞書の中身。/Length は自動で付加する。
+  @param {Uint8Array} data ストリームデータ。
+  */
+  writeStream(id, dict, data) {
+    this.offsets[id] = this.offset;
+    this.writeText(`${id} 0 obj\n<< ${dict} /Length ${data.length} >>\nstream\n`);
+    this.writeBytes(data);
+    this.writeText("\nendstream\nendobj\n");
+  }
+
+  /**
+  相互参照表とトレーラーを書き出し、PDFを完成させる。
+  @param {number} rootId カタログのオブジェクト番号。
+  @param {number} infoId 文書情報のオブジェクト番号。
+  @returns {Blob} PDFデータ。
+  */
+  finish(rootId, infoId) {
+    const xrefOffset = this.offset;
+    const size = this.offsets.length;
+    let xref = `xref\n0 ${size}\n0000000000 65535 f \n`;
+    for (let id = 1; id < size; id++) {
+      if (this.offsets[id] === 0) throw new Error(`オブジェクト ${id} が書き出されていません。`);
+      xref += `${String(this.offsets[id]).padStart(10, "0")} 00000 n \n`;
+    }
+    this.writeText(xref);
+    this.writeText(
+      `trailer\n<< /Size ${size} /Root ${rootId} 0 R /Info ${infoId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`
+    );
+    return new Blob(this.chunks, {type: "application/pdf"});
+  }
+}
+
+/**
+画像XObjectを書き出す。
+@param {PdfWriter} writer 書き出し先。
+@param {PdfImage} image 画像データ。
+@returns {number} 画像XObjectのオブジェクト番号。
+*/
+function writeImage(writer, image) {
+  const size = `/Width ${image.width} /Height ${image.height} /BitsPerComponent 8`;
+  let smask = "";
+  if (image.alpha) {
+    const smaskId = writer.allocate();
+    writer.writeStream(
+      smaskId,
+      `/Type /XObject /Subtype /Image ${size} /ColorSpace /DeviceGray /Filter /FlateDecode`,
+      image.alpha
+    );
+    smask = ` /SMask ${smaskId} 0 R`;
+  }
+  const decode = image.decode ? ` /Decode [${image.decode.join(" ")}]` : "";
+  const id = writer.allocate();
+  writer.writeStream(
+    id,
+    `/Type /XObject /Subtype /Image ${size} /ColorSpace ${image.colorSpace} /Filter ${image.filter}${decode}${smask}`,
+    image.data
+  );
+  return id;
+}
+
+/**
+ページの描画命令を組み立てる。
+@param {Layout} layout 配置結果。
+@param {PdfImage} image 画像データ。
+@param {number} rotation ユーザー指定の回転角（度、時計回り）。
+@param {string} background 背景色。"#RRGGBB" 形式。
+@returns {string} コンテンツストリームの内容。
+*/
+function buildContent(layout, image, rotation, background) {
+  const {pageW, pageH, rect, clip} = layout;
+  const place = [rect.w, 0, 0, rect.h, rect.x, pageH - rect.y - rect.h];
+  const matrix = mulMatrix(place, mulMatrix(rotationMatrix(rotation), image.matrix));
+
+  // 背景はページ全面に塗る。透過部分もこの色になる
+  const ops = [
+    "q",
+    `${parseHexColor(background).map(formatNumber).join(" ")} rg`,
+    `0 0 ${formatNumber(pageW)} ${formatNumber(pageH)} re f`,
+    "Q"
+  ];
+  ops.push("q");
+  if (clip) {
+    const values = [clip.x, pageH - clip.y - clip.h, clip.w, clip.h];
+    ops.push(`${values.map(formatNumber).join(" ")} re W n`);
+  }
+  ops.push(`${matrix.map(formatNumber).join(" ")} cm`, "/Im0 Do", "Q");
+  return ops.join("\n");
+}
+
+/**
+1ページ分のオブジェクトを書き出す。
+@param {PdfWriter} writer 書き出し先。
+@param {number} pagesId ページツリーのオブジェクト番号。
+@param {Layout} layout 配置結果。
+@param {PdfImage} image 画像データ。
+@param {number} rotation ユーザー指定の回転角（度、時計回り）。
+@param {string} background 背景色。"#RRGGBB" 形式。
+@returns {number} ページのオブジェクト番号。
+*/
+function writePage(writer, pagesId, layout, image, rotation, background) {
+  const imageId = writeImage(writer, image);
+  const contentId = writer.allocate();
+  const content = buildContent(layout, image, rotation, background);
+  writer.writeStream(contentId, "", writer.encoder.encode(content));
+
+  const pageId = writer.allocate();
+  const mediaBox = [0, 0, layout.pageW, layout.pageH].map(formatNumber).join(" ");
+  writer.writeObject(
+    pageId,
+    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [${mediaBox}]`
+        + ` /Resources << /XObject << /Im0 ${imageId} 0 R >> >>`
+        + ` /Contents ${contentId} 0 R >>`
+  );
+  return pageId;
+}
+
+/**
+カタログ、ページツリー、文書情報を書き出してPDFを完成させる。
+@param {PdfWriter} writer 書き出し先。
+@param {number} pagesId 確保済みのページツリーのオブジェクト番号。
+@param {number[]} pageIds ページのオブジェクト番号。
+@param {string} title 文書タイトル。
+@returns {Blob} PDFデータ。
+*/
+function finishDocument(writer, pagesId, pageIds, title) {
+  writer.writeObject(
+    pagesId,
+    `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`
+  );
+  const catalogId = writer.allocate();
+  writer.writeObject(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
+  const infoId = writer.allocate();
+  writer.writeObject(infoId, `<< /Title ${pdfTextString(title)} /Producer (Image to PDF) >>`);
+  return writer.finish(catalogId, infoId);
+}
+
+// #endregion core
+
+// #region app
+
+/** 表示するバージョン。 */
+const APP_VERSION = "v0.1.0（フェーズ1）";
+
+/**
+値を任意に変更できる設定項目の既定値。
+@remarks 要素のidをキーにする。リセットボタンの data-reset がこのキーを指す。
+*/
+const CONTROL_DEFAULTS = {
+  margin: "0",
+  background: "#ffffff",
+  filename: "images"
+};
+
+/** 矩形選択を開始したと見なす移動量（CSS px）。 */
+const MARQUEE_THRESHOLD = 4;
+
+/** サムネイルの長辺ピクセル数。 */
+const THUMB_MAX = 360;
+
+/** カード内プレビューの最大表示サイズ（CSS px）。 */
+const PREVIEW_BOX = 160;
+
+/** サムネイル生成の同時実行数。 */
+const LOAD_CONCURRENCY = 3;
+
+/** 受け付ける拡張子。MIMEタイプが空の場合に使う。 */
+const SUPPORTED_EXTENSIONS = ["jpg", "jpeg", "jfif", "png", "apng", "bmp", "webp", "gif", "avif"];
+
+/** 受け付けないMIMEタイプ。 */
+const EXCLUDED_TYPES = ["image/svg+xml", "image/tiff", "image/heic", "image/heif"];
+
+/**
+@typedef {object} Item
+@property {number} id 識別番号。
+@property {File} file 元ファイル。
+@property {number} pixelW 向き補正後の幅（px）。
+@property {number} pixelH 向き補正後の高さ（px）。
+@property {number} rotation ユーザー指定の回転角（0、90、180、270）。
+@property {HTMLCanvasElement|null} thumb サムネイル。
+@property {string} status "loading" または "ready"。
+@property {HTMLElement} el カード要素。
+@property {HTMLCanvasElement} canvas プレビュー描画先。
+*/
+
+/** アプリケーションの状態。 */
+const state = {
+  /** @type {Item[]} */
+  items: [],
+  /** @type {Set<number>} */
+  selected: new Set(),
+  /** @type {number|null} Shift選択の起点。 */
+  anchorId: null,
+  busy: false,
+  dragging: false,
+  nextId: 1
+};
+
+/** @type {Item[]} 読み込み待ちの項目。 */
+const loadQueue = [];
+
+/** 読み込み中の件数。 */
+let activeLoads = 0;
+
+/** @type {string[]} 読み込みに失敗したファイル名。 */
+let loadErrors = [];
+
+/** ファイル名の自然順比較。 */
+const collator = new Intl.Collator("ja", {numeric: true, sensitivity: "base"});
+
+const $ = (selector) => document.querySelector(selector);
+
+const dom = {
+  grid: $("#grid"),
+  scroller: $("#scroller"),
+  marquee: $("#marquee"),
+  help: $("#help"),
+  empty: $("#empty"),
+  status: $("#status"),
+  fileInput: $("#file-input"),
+  exportButton: $("#export"),
+  progress: $("#progress"),
+  progressBar: $("#progress-bar"),
+  progressLabel: $("#progress-label"),
+  message: $("#message"),
+  template: $("#card-template")
+};
+
+/**
+現在のページ設定を取得する。
+@returns {PageSettings} ページ設定。
+*/
+function getSettings() {
+  return {
+    pageSize: $("#page-size").value,
+    orientation: $('input[name="orientation"]:checked').value,
+    fit: $('input[name="fit"]:checked').value,
+    marginMm: Math.min(100, Math.max(0, Number($("#margin").value) || 0)),
+    background: $("#background").value
+  };
+}
+
+/**
+入力された色文字列を正規化する。
+@param {string} value 入力値。3桁または6桁の16進表記。先頭の # は省略可。
+@returns {string|null} "#RRGGBB" 形式。解釈できない場合はnull。
+*/
+function normalizeHexColor(value) {
+  const text = value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(text)) {
+    return `#${[...text].map((channel) => channel + channel).join("").toUpperCase()}`;
+  }
+  if (/^[0-9a-f]{6}$/i.test(text)) return `#${text.toUpperCase()}`;
+  return null;
+}
+
+/**
+受け付けるファイルか判定する。
+@param {File} file 対象ファイル。
+@returns {boolean} 受け付ける場合はtrue。
+*/
+function isSupportedFile(file) {
+  if (EXCLUDED_TYPES.includes(file.type)) return false;
+  if (file.type.startsWith("image/")) return true;
+  const extension = file.name.split(".").pop().toLowerCase();
+  return file.type === "" && SUPPORTED_EXTENSIONS.includes(extension);
+}
+
+let messageTimer = 0;
+
+/**
+画面右下にメッセージを表示する。
+@param {string} text 表示する文。
+@param {boolean} [isError] エラー表示にする場合はtrue。
+*/
+function showMessage(text, isError = false) {
+  dom.message.textContent = text;
+  dom.message.classList.toggle("error", isError);
+  dom.message.hidden = false;
+  clearTimeout(messageTimer);
+  messageTimer = setTimeout(() => {dom.message.hidden = true;}, 6000);
+}
+
+/**
+ファイル名を一覧で表示する文にする。
+@param {string[]} names ファイル名。
+@returns {string} 最大5件までの一覧。
+*/
+function listNames(names) {
+  const shown = names.slice(0, 5).join("\n");
+  return names.length > 5 ? `${shown}\nほか ${names.length - 5} 件` : shown;
+}
+
+/**
+ファイルを一覧に追加する。
+@param {Iterable<File>} files 追加するファイル。
+*/
+function addFiles(files) {
+  const rejected = [];
+  for (const file of files) {
+    if (!isSupportedFile(file)) {
+      rejected.push(file.name);
+      continue;
+    }
+    const item = createItem(file);
+    state.items.push(item);
+    loadQueue.push(item);
+  }
+  if (rejected.length > 0) {
+    showMessage(`対応していない形式のため追加しませんでした。\n${listNames(rejected)}`, true);
+  }
+  renderOrder();
+  pumpLoads();
+}
+
+/**
+項目とカード要素を作成する。
+@param {File} file 元ファイル。
+@returns {Item} 作成した項目。
+*/
+function createItem(file) {
+  const el = dom.template.content.firstElementChild.cloneNode(true);
+  const item = {
+    id: state.nextId++,
+    file,
+    pixelW: 0,
+    pixelH: 0,
+    rotation: 0,
+    thumb: null,
+    status: "loading",
+    el,
+    canvas: el.querySelector(".card-canvas")
+  };
+  el.dataset.id = String(item.id);
+  el.querySelector(".card-name").textContent = file.name;
+  el.querySelector(".card-name").title = file.name;
+  el.querySelector(".card-meta").textContent = "読み込み中…";
+
+  el.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (button) {
+      runCardAction(item, button.dataset.action);
+      return;
+    }
+    selectByClick(item, event);
+  });
+  el.addEventListener("dragstart", (event) => onDragStart(item, event));
+  el.addEventListener("dragend", onDragEnd);
+
+  drawCard(item, getSettings());
+  return item;
+}
+
+/** 読み込み待ちの項目を同時実行数の範囲で処理する。 */
+function pumpLoads() {
+  while (activeLoads < LOAD_CONCURRENCY && loadQueue.length > 0) {
+    const item = loadQueue.shift();
+    activeLoads++;
+    loadItem(item).finally(() => {
+      activeLoads--;
+      pumpLoads();
+      if (activeLoads === 0 && loadQueue.length === 0 && loadErrors.length > 0) {
+        showMessage(`読み込めなかった画像を除外しました。\n${listNames(loadErrors)}`, true);
+        loadErrors = [];
+      }
+      updateStatus();
+    });
+  }
+  updateStatus();
+}
+
+/**
+画像を読み込み、サムネイルを作成する。
+@param {Item} item 対象の項目。
+*/
+async function loadItem(item) {
+  if (!state.items.includes(item)) return;
+  let bitmap = null;
+  try {
+    // EXIFの向きはブラウザが適用する
+    bitmap = await createImageBitmap(item.file);
+    const scale = Math.min(1, THUMB_MAX / Math.max(bitmap.width, bitmap.height));
+    const thumb = document.createElement("canvas");
+    thumb.width = Math.max(1, Math.round(bitmap.width * scale));
+    thumb.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = thumb.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, thumb.width, thumb.height);
+
+    item.pixelW = bitmap.width;
+    item.pixelH = bitmap.height;
+    item.thumb = thumb;
+    item.status = "ready";
+    drawCard(item, getSettings());
+  }
+  catch (error) {
+    console.error(item.file.name, error);
+    if (state.items.includes(item)) {
+      loadErrors.push(item.file.name);
+      removeItems([item.id]);
+    }
+  }
+  finally {
+    if (bitmap) bitmap.close();
+  }
+}
+
+/**
+キャンバスの表示サイズと解像度を設定する。
+@param {HTMLCanvasElement} canvas 対象キャンバス。
+@param {number} width 表示幅（CSS px）。
+@param {number} height 表示高さ（CSS px）。
+@param {number} dpr デバイスピクセル比。
+*/
+function resizeCanvas(canvas, width, height, dpr) {
+  canvas.width = Math.max(1, Math.round(width * dpr));
+  canvas.height = Math.max(1, Math.round(height * dpr));
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
+}
+
+/**
+カードのページプレビューを描画する。
+@param {Item} item 対象の項目。
+@param {PageSettings} settings ページ設定。
+*/
+function drawCard(item, settings) {
+  const canvas = item.canvas;
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+
+  if (item.status !== "ready") {
+    const width = PREVIEW_BOX / Math.SQRT2;
+    resizeCanvas(canvas, width, PREVIEW_BOX, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#e8ebee";
+    ctx.fillRect(0, 0, width, PREVIEW_BOX);
+    return;
+  }
+
+  const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
+  const scale = Math.min(PREVIEW_BOX / layout.pageW, PREVIEW_BOX / layout.pageH);
+  resizeCanvas(canvas, layout.pageW * scale, layout.pageH * scale, dpr);
+  ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+  ctx.fillStyle = settings.background;
+  ctx.fillRect(0, 0, layout.pageW, layout.pageH);
+
+  const {rect, clip} = layout;
+  ctx.save();
+  if (clip) {
+    ctx.beginPath();
+    ctx.rect(clip.x, clip.y, clip.w, clip.h);
+    ctx.clip();
+  }
+  ctx.translate(rect.x + rect.w / 2, rect.y + rect.h / 2);
+  ctx.rotate(item.rotation * Math.PI / 180);
+  const swap = item.rotation % 180 !== 0;
+  const drawW = swap ? rect.h : rect.w;
+  const drawH = swap ? rect.w : rect.h;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(item.thumb, -drawW / 2, -drawH / 2, drawW, drawH);
+  ctx.restore();
+
+  if (settings.marginMm > 0 && settings.pageSize !== "image") {
+    // 余白の位置を示す補助線（PDFには出力しない）
+    const margin = settings.marginMm * PT_PER_MM;
+    const [red, green, blue] = parseHexColor(settings.background);
+    const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+    ctx.strokeStyle = luminance > 0.5 ? "rgba(47, 79, 196, 0.45)" : "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = 1 / scale;
+    ctx.setLineDash([3 / scale, 3 / scale]);
+    ctx.strokeRect(margin, margin, layout.pageW - margin * 2, layout.pageH - margin * 2);
+  }
+
+  const rotationText = item.rotation === 0 ? "" : `、${item.rotation}°回転`;
+  item.el.querySelector(".card-meta").textContent = `${item.pixelW} × ${item.pixelH} px${rotationText}`;
+}
+
+/** すべてのカードを再描画する。 */
+function redrawAll() {
+  const settings = getSettings();
+  for (const item of state.items) drawCard(item, settings);
+}
+
+/** カードの並び順、番号、選択状態を画面に反映する。 */
+function renderOrder() {
+  const fragment = document.createDocumentFragment();
+  state.items.forEach((item, index) => {
+    item.el.querySelector(".card-index").textContent = String(index + 1);
+    item.el.classList.toggle("selected", state.selected.has(item.id));
+    fragment.append(item.el);
+  });
+  dom.grid.replaceChildren(fragment);
+  updateStatus();
+}
+
+/** ツールバーと出力ボタンの状態を更新する。 */
+function updateStatus() {
+  const total = state.items.length;
+  const loading = activeLoads + loadQueue.length;
+  const selectedCount = state.selected.size;
+
+  dom.empty.hidden = total > 0;
+  const parts = [`${total} 枚`];
+  if (selectedCount > 0) parts.push(`${selectedCount} 枚選択中`);
+  if (loading > 0) parts.push(`読み込み中 ${loading}`);
+  dom.status.textContent = parts.join("／");
+
+  for (const id of ["#rotate-left", "#rotate-right", "#reset", "#remove-selected"]) {
+    $(id).disabled = selectedCount === 0;
+  }
+  for (const id of ["#sort-asc", "#sort-desc", "#clear"]) {
+    $(id).disabled = total === 0;
+  }
+  dom.exportButton.disabled = state.busy || total === 0 || loading > 0;
+}
+
+/**
+カードのクリックで選択を更新する。
+@param {Item} item クリックされた項目。
+@param {MouseEvent} event クリックイベント。
+*/
+function selectByClick(item, event) {
+  if (event.shiftKey && state.anchorId !== null) {
+    const ids = state.items.map((entry) => entry.id);
+    const from = ids.indexOf(state.anchorId);
+    const to = ids.indexOf(item.id);
+    if (from >= 0) {
+      if (!(event.ctrlKey || event.metaKey)) state.selected.clear();
+      const [start, end] = from < to ? [from, to] : [to, from];
+      for (let i = start; i <= end; i++) state.selected.add(ids[i]);
+      updateSelection();
+      return;
+    }
+  }
+  if (event.ctrlKey || event.metaKey) {
+    if (state.selected.has(item.id)) {state.selected.delete(item.id);} else {state.selected.add(item.id);}
+  }
+  else {
+    state.selected.clear();
+    state.selected.add(item.id);
+  }
+  state.anchorId = item.id;
+  updateSelection();
+}
+
+/** 選択状態の表示を更新する。 */
+function updateSelection() {
+  for (const item of state.items) {
+    item.el.classList.toggle("selected", state.selected.has(item.id));
+  }
+  updateStatus();
+}
+
+/**
+カード上のボタン操作を実行する。
+@param {Item} item 対象の項目。
+@param {string} action 操作名。
+*/
+function runCardAction(item, action) {
+  switch (action) {
+    case "rotate-left":
+      rotateItems([item.id], -90);
+      break;
+    case "rotate-right":
+      rotateItems([item.id], 90);
+      break;
+    case "remove":
+      removeItems([item.id]);
+      break;
+  }
+}
+
+/**
+項目を回転する。
+@param {number[]} ids 対象の識別番号。
+@param {number} delta 回転量（度、時計回り）。
+*/
+function rotateItems(ids, delta) {
+  const settings = getSettings();
+  for (const item of state.items) {
+    if (!ids.includes(item.id)) continue;
+    item.rotation = (item.rotation + delta + 360) % 360;
+    drawCard(item, settings);
+  }
+}
+
+/**
+項目への編集を取り消し、初期状態に戻す。
+@param {number[]} ids 対象の識別番号。
+@remarks 現在の編集項目は回転のみ。編集項目が増えた場合はここに追加する。
+*/
+function resetItems(ids) {
+  const settings = getSettings();
+  const targets = new Set(ids);
+  for (const item of state.items) {
+    if (!targets.has(item.id) || item.rotation === 0) continue;
+    item.rotation = 0;
+    drawCard(item, settings);
+  }
+}
+
+/**
+項目を削除する。
+@param {number[]} ids 対象の識別番号。
+*/
+function removeItems(ids) {
+  const targets = new Set(ids);
+  state.items = state.items.filter((item) => {
+    if (!targets.has(item.id)) return true;
+    item.el.remove();
+    if (item.thumb) item.thumb.width = 0;
+    return false;
+  });
+  for (const id of targets) state.selected.delete(id);
+  if (targets.has(state.anchorId)) state.anchorId = null;
+  renderOrder();
+}
+
+/**
+ファイル名で並べ替える。
+@param {boolean} descending 降順にする場合はtrue。
+*/
+function sortByName(descending) {
+  const sign = descending ? -1 : 1;
+  state.items.sort((a, b) => sign * collator.compare(a.file.name, b.file.name));
+  renderOrder();
+}
+
+/**
+カードのドラッグ開始時の処理。
+@param {Item} item ドラッグされた項目。
+@param {DragEvent} event ドラッグイベント。
+*/
+function onDragStart(item, event) {
+  if (state.busy) {
+    event.preventDefault();
+    return;
+  }
+  if (!state.selected.has(item.id)) {
+    state.selected.clear();
+    state.selected.add(item.id);
+    state.anchorId = item.id;
+    updateSelection();
+  }
+  state.dragging = true;
+  dragBoxes = captureCardBoxes();
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", "reorder");
+  for (const entry of state.items) {
+    entry.el.classList.toggle("dragging", state.selected.has(entry.id));
+  }
+}
+
+/** カードのドラッグ終了時の処理。 */
+function onDragEnd() {
+  state.dragging = false;
+  dragBoxes = [];
+  clearDropIndicator();
+  for (const item of state.items) item.el.classList.remove("dragging");
+}
+
+/** @type {{item: Item, after: boolean}|null} 現在の挿入位置。 */
+let dropTarget = null;
+
+/** @type {CardBox[]} 並べ替え中のカード位置。 */
+let dragBoxes = [];
+
+/** 挿入位置の表示を消す。 */
+function clearDropIndicator() {
+  for (const el of dom.grid.querySelectorAll(".drop-before, .drop-after")) {
+    el.classList.remove("drop-before", "drop-after");
+  }
+  dropTarget = null;
+}
+
+/**
+ポインター位置から挿入位置を求める。
+@param {number} clientX ポインターのX座標。
+@param {number} clientY ポインターのY座標。
+@returns {{item: Item, after: boolean}|null} 挿入位置。対象が無い場合はnull。
+@remarks
+カードの隙間にも対応するため、カードの矩形までの距離が最も近いものを選ぶ。
+隙間ではどちらのカードを選んでも挿入位置は同じになる。
+*/
+function findDropTarget(clientX, clientY) {
+  if (dragBoxes.length === 0) return null;
+  const origin = dom.grid.getBoundingClientRect();
+  const x = clientX - origin.left;
+  const y = clientY - origin.top;
+
+  let nearest = null;
+  let nearestDistance = Infinity;
+  let lastBottom = -Infinity;
+  for (const box of dragBoxes) {
+    lastBottom = Math.max(lastBottom, box.bottom);
+    const dx = Math.max(box.left - x, 0, x - box.right);
+    const dy = Math.max(box.top - y, 0, y - box.bottom);
+    const distance = dx * dx + dy * dy;
+    if (distance >= nearestDistance) continue;
+    nearestDistance = distance;
+    nearest = {
+      item: state.items.find((entry) => entry.id === box.id),
+      after: x > (box.left + box.right) / 2
+    };
+  }
+
+  // 最終行より下の空白は末尾として扱う
+  if (y > lastBottom) return {item: state.items[state.items.length - 1], after: true};
+  return nearest && nearest.item ? nearest : null;
+}
+
+/**
+ドラッグ位置から挿入位置を求めて表示する。
+@param {DragEvent} event ドラッグイベント。
+*/
+function updateDropIndicator(event) {
+  const target = findDropTarget(event.clientX, event.clientY);
+  if (
+    dropTarget
+        && target
+        && dropTarget.item === target.item
+        && dropTarget.after === target.after
+  ) {
+    return;
+  }
+  clearDropIndicator();
+  dropTarget = target;
+  if (target) target.item.el.classList.add(target.after ? "drop-after" : "drop-before");
+}
+
+/** 選択中の項目を挿入位置へ移動する。 */
+function moveSelectedToDropTarget() {
+  const target = dropTarget;
+  clearDropIndicator();
+  if (!target) return;
+
+  const moving = state.items.filter((item) => state.selected.has(item.id));
+  const rest = state.items.filter((item) => !state.selected.has(item.id));
+  let index;
+  if (state.selected.has(target.item.id)) {
+    // 選択範囲の上に落とした場合は、元の先頭位置にまとめる
+    const first = state.items.indexOf(moving[0]);
+    index = state.items.slice(0, first).filter((item) => !state.selected.has(item.id)).length;
+  }
+  else {
+    index = rest.indexOf(target.item) + (target.after ? 1 : 0);
+  }
+  rest.splice(index, 0, ...moving);
+  state.items = rest;
+  renderOrder();
+}
+
+/**
+@typedef {object} CardBox
+@property {number} id 項目の識別番号。
+@property {number} left グリッド座標の左端。
+@property {number} top グリッド座標の上端。
+@property {number} right グリッド座標の右端。
+@property {number} bottom グリッド座標の下端。
+*/
+
+/**
+すべてのカードの位置を控える。
+@returns {CardBox[]} グリッド座標の矩形。
+@remarks
+グリッド要素の左上を原点とするため、スクロールしても値が変わらない。
+ドラッグ中に毎回レイアウトを読み直さずに済ませるために使う。
+*/
+function captureCardBoxes() {
+  const origin = dom.grid.getBoundingClientRect();
+  return state.items.map((item) => {
+    const box = item.el.getBoundingClientRect();
+    return {
+      id: item.id,
+      left: box.left - origin.left,
+      top: box.top - origin.top,
+      right: box.right - origin.left,
+      bottom: box.bottom - origin.top
+    };
+  });
+}
+
+/**
+矩形選択の状態。
+@remarks 座標はグリッド要素の左上を原点とする。スクロールしても値が変わらない。
+*/
+const marquee = {
+  moved: false,
+  additive: false,
+  suppressClick: false,
+  startX: 0,
+  startY: 0,
+  /** @type {Set<number>} 開始時点の選択。追加選択の基準にする。 */
+  base: new Set(),
+  /** @type {CardBox[]} 開始時点のカードの位置。 */
+  boxes: []
+};
+
+/**
+矩形選択を開始する。
+@param {PointerEvent} event ポインターイベント。
+*/
+function startMarquee(event) {
+  // グリッドはプレビュー領域全体を覆うため、背景の判定はこれで足りる
+  if (state.busy || event.button !== 0 || event.target !== dom.grid) return;
+  event.preventDefault();
+
+  const box = dom.grid.getBoundingClientRect();
+  marquee.moved = false;
+  marquee.additive = event.ctrlKey || event.metaKey || event.shiftKey;
+  marquee.startX = event.clientX - box.left;
+  marquee.startY = event.clientY - box.top;
+  marquee.base = marquee.additive ? new Set(state.selected) : new Set();
+  marquee.boxes = captureCardBoxes();
+
+  window.addEventListener("pointermove", updateMarquee);
+  window.addEventListener("pointerup", endMarquee);
+  window.addEventListener("pointercancel", endMarquee);
+}
+
+/**
+矩形選択の範囲と選択状態を更新する。
+@param {PointerEvent} event ポインターイベント。
+*/
+function updateMarquee(event) {
+  const box = dom.grid.getBoundingClientRect();
+  const x = event.clientX - box.left;
+  const y = event.clientY - box.top;
+  if (!marquee.moved) {
+    const enough = Math.abs(x - marquee.startX) >= MARQUEE_THRESHOLD
+        || Math.abs(y - marquee.startY) >= MARQUEE_THRESHOLD;
+    if (!enough) return;
+    marquee.moved = true;
+    dom.marquee.hidden = false;
+  }
+
+  const area = {
+    left: Math.min(marquee.startX, x),
+    top: Math.min(marquee.startY, y),
+    right: Math.max(marquee.startX, x),
+    bottom: Math.max(marquee.startY, y)
+  };
+
+  // 表示はプレビュー領域の内側に収める
+  const view = dom.scroller.getBoundingClientRect();
+  const left = Math.max(view.left, box.left + area.left);
+  const top = Math.max(view.top, box.top + area.top);
+  const right = Math.min(view.right, box.left + area.right);
+  const bottom = Math.min(view.bottom, box.top + area.bottom);
+  dom.marquee.style.left = `${left}px`;
+  dom.marquee.style.top = `${top}px`;
+  dom.marquee.style.width = `${Math.max(0, right - left)}px`;
+  dom.marquee.style.height = `${Math.max(0, bottom - top)}px`;
+
+  state.selected = new Set(marquee.base);
+  for (const card of marquee.boxes) {
+    const hit = card.left < area.right
+        && card.right > area.left
+        && card.top < area.bottom
+        && card.bottom > area.top;
+    if (hit) state.selected.add(card.id);
+  }
+  updateSelection();
+}
+
+/** 矩形選択を終了する。 */
+function endMarquee() {
+  window.removeEventListener("pointermove", updateMarquee);
+  window.removeEventListener("pointerup", endMarquee);
+  window.removeEventListener("pointercancel", endMarquee);
+  dom.marquee.hidden = true;
+  marquee.boxes = [];
+
+  if (marquee.moved) {
+    state.anchorId = null;
+    // 直後のclickで選択が解除されないようにする
+    marquee.suppressClick = true;
+    setTimeout(() => {marquee.suppressClick = false;}, 0);
+  }
+  else if (!marquee.additive) {
+    state.selected.clear();
+    updateSelection();
+  }
+}
+
+/**
+ドラッグ中のデータにファイルが含まれるか判定する。
+@param {DragEvent} event ドラッグイベント。
+@returns {boolean} ファイルを含む場合はtrue。
+*/
+function hasFiles(event) {
+  return Array.from(event.dataTransfer?.types ?? []).includes("Files");
+}
+
+/**
+入力値を出力ファイル名として使える形に整える。
+@param {string} value 入力値。拡張子は含めない。
+@returns {string} 整形後のファイル名。空になる場合は既定値。
+@remarks
+末尾の「.」は、拡張子を足したときに点が連続しないよう取り除く。
+名前の途中の「.」は、version1.2のような指定を妨げないためそのまま残す。
+*/
+function sanitizeFilename(value) {
+  const name = value.trim().replace(/[\\/:*?"<>|]/g, "_").replace(/\.+$/, "");
+  return name === "" ? CONTROL_DEFAULTS.filename : name;
+}
+
+/**
+PDF埋め込み用の画像データを用意する。
+@param {File} file 元ファイル。
+@returns {Promise<PdfImage>} 画像データ。
+*/
+async function prepareImage(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const jpeg = parseJpeg(bytes);
+  if (jpeg) {
+    // JPEGは再圧縮せずにそのまま埋め込む
+    const swap = jpeg.orientation >= 5;
+    return {
+      width: jpeg.width,
+      height: jpeg.height,
+      displayW: swap ? jpeg.height : jpeg.width,
+      displayH: swap ? jpeg.width : jpeg.height,
+      colorSpace: {1: "/DeviceGray", 3: "/DeviceRGB", 4: "/DeviceCMYK"}[jpeg.components],
+      filter: "/DCTDecode",
+      decode: jpeg.components === 4 && jpeg.adobe ? [1, 0, 1, 0, 1, 0, 1, 0] : null,
+      data: bytes,
+      alpha: null,
+      matrix: orientationMatrix(jpeg.orientation)
+    };
+  }
+  return rasterizeImage(file);
+}
+
+/**
+ブラウザでデコードした画素をFlate圧縮で埋め込む形式にする。
+@param {File} file 元ファイル。
+@returns {Promise<PdfImage>} 画像データ。
+*/
+async function rasterizeImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const {width, height} = bitmap;
+  let pixels;
+  try {
+    const canvas = typeof OffscreenCanvas === "undefined"
+        ? Object.assign(document.createElement("canvas"), {width, height})
+        : new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext("2d", {willReadFrequently: true});
+    if (!ctx) throw new Error("キャンバスを作成できません。画像が大きすぎる可能性があります。");
+    ctx.drawImage(bitmap, 0, 0);
+    pixels = ctx.getImageData(0, 0, width, height).data;
+    canvas.width = 1;
+    canvas.height = 1;
+  }
+  finally {
+    bitmap.close();
+  }
+
+  const count = width * height;
+  const rgb = new Uint8Array(count * 3);
+  const alpha = new Uint8Array(count);
+  let hasAlpha = false;
+  for (let i = 0; i < count; i++) {
+    const p = i * 4;
+    const q = i * 3;
+    rgb[q] = pixels[p];
+    rgb[q + 1] = pixels[p + 1];
+    rgb[q + 2] = pixels[p + 2];
+    alpha[i] = pixels[p + 3];
+    if (alpha[i] !== 255) hasAlpha = true;
+  }
+
+  return {
+    width,
+    height,
+    displayW: width,
+    displayH: height,
+    colorSpace: "/DeviceRGB",
+    filter: "/FlateDecode",
+    decode: null,
+    data: await deflate(rgb),
+    alpha: hasAlpha ? await deflate(alpha) : null,
+    matrix: M_IDENTITY
+  };
+}
+
+/**
+処理中の状態を切り替える。
+@param {boolean} busy 処理中にする場合はtrue。
+*/
+function setBusy(busy) {
+  state.busy = busy;
+  document.body.classList.toggle("busy", busy);
+  for (const el of document.querySelectorAll(".settings input, .settings select")) {
+    el.disabled = busy;
+  }
+  if (!busy) syncSettingControls();
+  dom.progress.hidden = !busy;
+  updateStatus();
+}
+
+/**
+進捗を表示する。
+@param {number} done 完了数。
+@param {number} total 総数。
+@param {string} label 表示する文。
+*/
+function setProgress(done, total, label) {
+  dom.progressBar.max = total;
+  dom.progressBar.value = done;
+  dom.progressLabel.textContent = label;
+}
+
+/** 次の描画フレームまで待つ。 */
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+/** PDFを作成してダウンロードする。 */
+async function exportPdf() {
+  const targets = state.items.filter((item) => item.status === "ready");
+  if (targets.length === 0 || state.busy) return;
+
+  setBusy(true);
+  const settings = getSettings();
+  const baseName = sanitizeFilename($("#filename").value);
+  const writer = new PdfWriter();
+  const pagesId = writer.allocate();
+  const pageIds = [];
+  const failed = [];
+
+  try {
+    for (let i = 0; i < targets.length; i++) {
+      const item = targets[i];
+      setProgress(i, targets.length, `${i + 1} / ${targets.length}　${item.file.name}`);
+      await nextFrame();
+      try {
+        const image = await prepareImage(item.file);
+        const layout = computeLayout(image.displayW, image.displayH, item.rotation, settings);
+        pageIds.push(writePage(writer, pagesId, layout, image, item.rotation, settings.background));
+      }
+      catch (error) {
+        console.error(item.file.name, error);
+        failed.push(item.file.name);
+      }
+    }
+    if (pageIds.length === 0) throw new Error("PDFに追加できる画像がありませんでした。");
+
+    setProgress(targets.length, targets.length, "ファイルを保存しています…");
+    const blob = finishDocument(writer, pagesId, pageIds, baseName);
+    downloadBlob(blob, `${baseName}.pdf`);
+
+    if (failed.length > 0) {
+      showMessage(`${pageIds.length} ページのPDFを作成しました。次の画像は変換できず除外しました。\n${listNames(failed)}`, true);
+    }
+    else {
+      showMessage(`${pageIds.length} ページのPDFを作成しました。`);
+    }
+  }
+  catch (error) {
+    console.error(error);
+    showMessage(error.message, true);
+  }
+  finally {
+    setBusy(false);
+  }
+}
+
+/**
+Blobをファイルとして保存させる。
+@param {Blob} blob 保存するデータ。
+@param {string} filename ファイル名。
+*/
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/**
+入力欄を既定値に戻す。
+@param {string} id 対象の要素id。CONTROL_DEFAULTS のキー。
+@remarks
+入力イベントを発生させ、プレビューの再描画や連動する入力欄の更新を、
+利用者が手で入力した場合と同じ経路で行う。
+*/
+function resetControl(id) {
+  const el = $(`#${id}`);
+  if (!el) return;
+  el.value = CONTROL_DEFAULTS[id];
+  el.dispatchEvent(new Event("input", {bubbles: true}));
+  el.dispatchEvent(new Event("change", {bubbles: true}));
+}
+
+/** 用紙サイズに応じて設定項目の有効状態を切り替える。 */
+function syncSettingControls() {
+  const fitToImage = $("#page-size").value === "image";
+  for (const el of document.querySelectorAll('input[name="orientation"], input[name="fit"]')) {
+    el.disabled = fitToImage;
+  }
+  $("#size-note").hidden = !fitToImage;
+}
+
+/** 画面のイベントを登録する。 */
+function bindEvents() {
+  const openDialog = () => {if (!state.busy) dom.fileInput.click();};
+  $("#add").addEventListener("click", openDialog);
+  $("#dropzone").addEventListener("click", openDialog);
+  dom.fileInput.addEventListener("change", () => {
+    addFiles(dom.fileInput.files);
+    dom.fileInput.value = "";
+  });
+
+  $("#sort-asc").addEventListener("click", () => sortByName(false));
+  $("#sort-desc").addEventListener("click", () => sortByName(true));
+  $("#rotate-left").addEventListener("click", () => rotateItems([...state.selected], -90));
+  $("#rotate-right").addEventListener("click", () => rotateItems([...state.selected], 90));
+  $("#reset").addEventListener("click", () => resetItems([...state.selected]));
+  $("#remove-selected").addEventListener("click", () => removeItems([...state.selected]));
+  $("#clear").addEventListener("click", () => {
+    if (confirm("すべての画像を一覧から削除しますか？")) removeItems(state.items.map((item) => item.id));
+  });
+  dom.exportButton.addEventListener("click", exportPdf);
+
+  // 入力欄を既定値に戻す
+  for (const button of document.querySelectorAll(".control-reset")) {
+    button.addEventListener("click", () => resetControl(button.dataset.reset));
+  }
+  $("#filename").addEventListener("change", (event) => {
+    event.target.value = sanitizeFilename(event.target.value);
+  });
+
+  // 色見本と16進入力を同期する
+  const background = $("#background");
+  const backgroundHex = $("#background-hex");
+  background.addEventListener("input", () => {
+    backgroundHex.value = background.value.toUpperCase();
+  });
+  backgroundHex.addEventListener("input", () => {
+    const hex = normalizeHexColor(backgroundHex.value);
+    if (hex) background.value = hex;
+  });
+  backgroundHex.addEventListener("change", () => {
+    // 入力途中や解釈できない値は、色見本の値に戻す
+    backgroundHex.value = background.value.toUpperCase();
+  });
+
+  const onSettingsChange = () => {
+    syncSettingControls();
+    redrawAll();
+  };
+  $("#settings").addEventListener("input", onSettingsChange);
+  $("#settings").addEventListener("change", onSettingsChange);
+
+  $("#help-open").addEventListener("click", () => dom.help.showModal());
+  $("#help-close").addEventListener("click", () => dom.help.close());
+  dom.help.addEventListener("click", (event) => {
+    // dialog自身がクリック対象になるのは、中身の外側（背景）を押した場合のみ
+    if (event.target === dom.help) dom.help.close();
+  });
+  $("#help-version").textContent = APP_VERSION;
+
+  // 何もない場所からの矩形選択
+  dom.grid.addEventListener("pointerdown", startMarquee);
+  dom.grid.addEventListener("click", (event) => {
+    if (marquee.suppressClick) return;
+    if (event.target === dom.grid) {
+      state.selected.clear();
+      updateSelection();
+    }
+  });
+
+  // カードの並べ替え
+  document.addEventListener("dragover", (event) => {
+    if (!state.dragging) return;
+    if (!dom.grid.contains(event.target)) {
+      // 領域外では挿入位置を示さず、ドロップも受け付けない
+      clearDropIndicator();
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    updateDropIndicator(event);
+  });
+  dom.grid.addEventListener("drop", (event) => {
+    if (!state.dragging) return;
+    event.preventDefault();
+    moveSelectedToDropTarget();
+  });
+
+  // ファイルのドロップ
+  window.addEventListener("dragover", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = state.busy ? "none" : "copy";
+    document.body.classList.add("file-over");
+  });
+  window.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget !== null) return;
+    document.body.classList.remove("file-over");
+    // ウィンドウ外へ出た場合も挿入位置を消す
+    if (state.dragging) clearDropIndicator();
+  });
+  window.addEventListener("drop", (event) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    document.body.classList.remove("file-over");
+    if (!state.busy) addFiles(event.dataTransfer.files);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (state.busy || dom.help.open || event.target.closest("input, select, textarea")) return;
+    if (event.key === "Delete" || event.key === "Backspace") {
+      if (state.selected.size === 0) return;
+      event.preventDefault();
+      removeItems([...state.selected]);
+    }
+    else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      for (const item of state.items) state.selected.add(item.id);
+      updateSelection();
+    }
+    else if (event.key === "Escape") {
+      state.selected.clear();
+      updateSelection();
+    }
+  });
+}
+
+bindEvents();
+syncSettingControls();
+updateStatus();
+
+// #endregion app
+</script>
+</body>
+</html>
