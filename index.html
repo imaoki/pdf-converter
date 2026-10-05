@@ -185,12 +185,6 @@ select {
   overflow-y: auto;
 }
 
-.sidebar h2 {
-  margin: 0 0 10px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--muted);
-}
 
 .field {
   display: grid;
@@ -363,9 +357,6 @@ select:focus-visible {
   cursor: default;
 }
 
-.settings section + section {
-  margin-top: 20px;
-}
 
 /* 折りたたみできる設定の節 */
 .panel > summary {
@@ -1764,6 +1755,18 @@ const APP_NAME = "PDF Converter";
 /** 1インチあたりのポイント数。 */
 const PT_PER_INCH = 72;
 
+/** ページの一辺に使える最大の単位数。PDFの制限。 */
+const MAX_PAGE_UNITS = 14400;
+
+/** ZIP64を使わない場合の書庫全体の上限（バイト）。 */
+const ZIP_MAX_BYTES = 0xffffffff;
+
+/** ZIP64を使わない場合の収録件数の上限。 */
+const ZIP_MAX_ENTRIES = 0xffff;
+
+/** 描画待ちの上限（ミリ秒）。表示されていないタブでも先へ進めるために使う。 */
+const FRAME_TIMEOUT = 50;
+
 /**
 固定用紙サイズ。
 @type {Object<string, number[]>} 縦向きの幅と高さ（mm）。
@@ -1807,6 +1810,9 @@ const PAGE_SIZES = {
 @property {number} pageH ページ高さ（pt）。
 @property {Rect} rect 画像の配置矩形。左上原点（pt）。
 @property {Rect|null} clip クリップ矩形。不要な場合はnull。
+@property {number} margin 実際に使った余白。
+@property {boolean} marginClamped 余白が大きすぎて減らした場合はtrue。
+@property {number} userUnit 1単位あたりのポイント数。通常は1。
 */
 
 /**
@@ -1892,6 +1898,32 @@ function orientationMatrix(orientation) {
 }
 
 /**
+ページが大きすぎる場合に、単位の倍率で表せる形へ直す。
+@param {Layout} layout 配置結果。
+@returns {Layout} userUnitを加えた配置結果。
+@remarks
+PDFの既定単位ではページの一辺が14400を超えられない。
+超える場合は座標をまとめて縮め、1単位あたりの大きさをUserUnitで宣言する。
+見た目の寸法は変わらないが、PDF 1.6以降でないと解釈されない。
+*/
+function withUserUnit(layout) {
+  const longest = Math.max(layout.pageW, layout.pageH);
+  if (longest <= MAX_PAGE_UNITS) return {...layout, userUnit: 1};
+
+  const unit = longest / MAX_PAGE_UNITS;
+  const shrink = (box) => ({x: box.x / unit, y: box.y / unit, w: box.w / unit, h: box.h / unit});
+  return {
+    ...layout,
+    pageW: layout.pageW / unit,
+    pageH: layout.pageH / unit,
+    rect: shrink(layout.rect),
+    clip: layout.clip === null ? null : shrink(layout.clip),
+    margin: layout.margin / unit,
+    userUnit: unit
+  };
+}
+
+/**
 ページ内の画像配置を計算する。
 @param {number} pixelW 向き補正後の画像幅（px）。
 @param {number} pixelH 向き補正後の画像高さ（px）。
@@ -1907,12 +1939,14 @@ function computeLayout(pixelW, pixelH, rotation, settings) {
   const margin = Math.max(0, settings.marginMm) * PT_PER_MM;
 
   if (settings.pageSize === "image") {
-    return {
+    return withUserUnit({
       pageW: imgW + margin * 2,
       pageH: imgH + margin * 2,
       rect: {x: margin, y: margin, w: imgW, h: imgH},
-      clip: null
-    };
+      clip: null,
+      margin,
+      marginClamped: false
+    });
   }
 
   const [baseW, baseH] = PAGE_SIZES[settings.pageSize];
@@ -1920,12 +1954,13 @@ function computeLayout(pixelW, pixelH, rotation, settings) {
       || (settings.orientation === "auto" && imgW > imgH);
   const pageW = (landscape ? baseH : baseW) * PT_PER_MM;
   const pageH = (landscape ? baseW : baseH) * PT_PER_MM;
-  const box = {
-    x: margin,
-    y: margin,
-    w: Math.max(1, pageW - margin * 2),
-    h: Math.max(1, pageH - margin * 2)
-  };
+  /*
+  余白が用紙の半分を超えると内側が無くなり、画像が点にまで潰れる。
+  短辺の45%で頭を打たせ、必ず1割は内側が残るようにする。
+  */
+  const limit = Math.min(pageW, pageH) * 0.45;
+  const used = Math.min(margin, limit);
+  const box = {x: used, y: used, w: pageW - used * 2, h: pageH - used * 2};
 
   let scale;
   switch (settings.fit) {
@@ -1941,12 +1976,14 @@ function computeLayout(pixelW, pixelH, rotation, settings) {
 
   const w = imgW * scale;
   const h = imgH * scale;
-  return {
+  return withUserUnit({
     pageW,
     pageH,
     rect: {x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h},
-    clip: settings.fit === "cover" ? box : null
-  };
+    clip: settings.fit === "cover" ? box : null,
+    margin: used,
+    marginClamped: used < margin
+  });
 }
 
 /**
@@ -1973,8 +2010,10 @@ function computeOutputSize(pixelW, pixelH, rotation, layout, settings) {
   const placedW = swap ? pixelH : pixelW;
   let scale = 1;
 
-  if (settings.maxDpi > 0 && layout.rect.w > 0) {
-    const actualDpi = placedW * PT_PER_INCH / layout.rect.w;
+  // 単位の倍率がかかっている場合、実寸はrectにその倍率を掛けた大きさになる
+  const placedPt = layout.rect.w * (layout.userUnit ?? 1);
+  if (settings.maxDpi > 0 && placedPt > 0) {
+    const actualDpi = placedW * PT_PER_INCH / placedPt;
     if (actualDpi > settings.maxDpi) scale = settings.maxDpi / actualDpi;
   }
   if (settings.maxEdge > 0) {
@@ -2121,20 +2160,26 @@ function parseJpeg(bytes) {
     if (length < 2 || segmentEnd > bytes.length) return null;
     const data = pos + 2;
 
-    if (marker === 0xc0 || marker === 0xc1 || marker === 0xc2) {
+    if (marker === 0xc0 || marker === 0xc1) {
       info.bits = bytes[data];
       info.height = view.getUint16(data + 1);
       info.width = view.getUint16(data + 3);
       info.components = bytes[data + 5];
     }
     else if (
-      marker >= 0xc3
+      marker >= 0xc2
           && marker <= 0xcf
           && marker !== 0xc4
           && marker !== 0xc8
           && marker !== 0xcc
     ) {
-      // 可逆・算術符号化など、PDFビューワーの対応が期待できない形式
+      /*
+      プログレッシブ（0xC2）、可逆、算術符号化など。
+      PDFのDCTDecodeはベースラインJPEG向けの定義で、
+      プログレッシブはAcrobatが描画できないことがある。
+      ブラウザでは表示できてしまい気付けないため、
+      そのまま埋め込まずにラスタライズへ回す。
+      */
       return null;
     }
     else if (marker === 0xe1 && matchAscii(bytes, data, "Exif\0\0")) {
@@ -2159,6 +2204,9 @@ function parseJpeg(bytes) {
 @returns {string} 小数点以下4桁までの表現。
 */
 function formatNumber(value) {
+  if (!Number.isFinite(value)) return "0";
+  // 1e21以上はtoStringもtoFixedも指数表記になり、PDFの数値として読めない
+  if (Math.abs(value) >= 1e21) return BigInt(Math.round(value)).toString();
   const text = Number(value.toFixed(4)).toString();
   return text === "-0" ? "0" : text;
 }
@@ -2265,8 +2313,11 @@ class PdfWriter {
     const size = this.offsets.length;
     let xref = `xref\n0 ${size}\n0000000000 65535 f \n`;
     for (let id = 1; id < size; id++) {
-      if (this.offsets[id] === 0) throw new Error(`オブジェクト ${id} が書き出されていません。`);
-      xref += `${String(this.offsets[id]).padStart(10, "0")} 00000 n \n`;
+      const offset = this.offsets[id];
+      if (offset === 0) throw new Error(`オブジェクト ${id} が書き出されていません。`);
+      // 相互参照表は1件20バイト固定。10桁を超えると表全体がずれる
+      if (offset > 9999999999) throw new Error("PDFが大きすぎます。分割出力を使ってください。");
+      xref += `${String(offset).padStart(10, "0")} 00000 n \n`;
     }
     this.writeText(xref);
     this.writeText(
@@ -2334,6 +2385,16 @@ function buildContent(layout, image, rotation, background) {
 }
 
 /**
+ページ辞書に入れる単位の倍率を返す。
+@param {Layout} layout 配置結果。
+@returns {string} " /UserUnit n" 形式。倍率が1なら空文字。
+*/
+function userUnitEntry(layout) {
+  const unit = layout.userUnit ?? 1;
+  return unit > 1 ? ` /UserUnit ${formatNumber(unit)}` : "";
+}
+
+/**
 1ページ分のオブジェクトを書き出す。
 @param {PdfWriter} writer 書き出し先。
 @param {number} pagesId ページツリーのオブジェクト番号。
@@ -2353,7 +2414,7 @@ function writePage(writer, pagesId, layout, image, rotation, background) {
   const mediaBox = [0, 0, layout.pageW, layout.pageH].map(formatNumber).join(" ");
   writer.writeObject(
     pageId,
-    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [${mediaBox}]`
+    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [${mediaBox}]${userUnitEntry(layout)}`
         + ` /Resources << /XObject << /Im0 ${imageId} 0 R >> >>`
         + ` /Contents ${contentId} 0 R >>`
   );
@@ -2382,7 +2443,7 @@ function writeBlankPage(writer, pagesId, layout, background) {
   const mediaBox = [0, 0, layout.pageW, layout.pageH].map(formatNumber).join(" ");
   writer.writeObject(
     pageId,
-    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [${mediaBox}]`
+    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [${mediaBox}]${userUnitEntry(layout)}`
         + ` /Resources << >> /Contents ${contentId} 0 R >>`
   );
   return pageId;
@@ -2451,7 +2512,9 @@ function writeOutline(writer, roots, pageIds) {
         parts.push(`/Last ${node.childIds[node.childIds.length - 1]} 0 R`);
         parts.push(`/Count ${countOutlineNodes(node.children)}`);
       }
-      const page = pageIds[Math.min(node.pageIndex, pageIds.length - 1)];
+      // 範囲外の番号でも必ず実在するページを指すようにする
+      const index = Math.min(Math.max(node.pageIndex, 0), pageIds.length - 1);
+      const page = pageIds[index];
       parts.push(`/Dest [${page} 0 R /Fit]`);
       writer.writeObject(node.id, `<< ${parts.join(" ")} >>`);
       write(node.children);
@@ -2506,7 +2569,8 @@ function pdfDate(date) {
   const offset = -date.getTimezoneOffset();
   const sign = offset < 0 ? "-" : "+";
   const absolute = Math.abs(offset);
-  return `(D:${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
+  const year = String(date.getFullYear()).padStart(4, "0");
+  return `(D:${year}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
       + `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
       + `${sign}${pad(Math.floor(absolute / 60))}'${pad(absolute % 60)}')`;
 }
@@ -2598,6 +2662,32 @@ function crc32(bytes) {
 */
 
 /**
+ZIPに収まる大きさかどうかを確かめる。
+@param {{name: string, size: number}[]} entries 収録予定の内容。
+@throws {Error} 上限を超える場合。
+@remarks
+ZIP64には対応していないため、書庫全体で4GiB、件数で65535が上限になる。
+超えるとオフセットや件数が巻き戻り、無言で壊れた書庫ができてしまう。
+*/
+function checkZipLimits(entries) {
+  /*
+  1件あたり、ローカルヘッダー30バイトと中央ディレクトリ46バイト。
+  名前はその両方に入るので2回分、UTF-8で最大3バイト／文字として数える。
+  末尾のEOCDの22バイトも足しておく。
+  */
+  const total = entries.reduce((sum, entry) => sum + entry.size + entry.name.length * 6 + 76, 22);
+  if (total > ZIP_MAX_BYTES) {
+    throw new Error(
+      "出力の合計が4GBを超えるためZIPにまとめられません。"
+          + "分割の条件を見直すか、画質・容量の設定で小さくしてください。"
+    );
+  }
+  if (entries.length > ZIP_MAX_ENTRIES) {
+    throw new Error(`ZIPにまとめられるのは ${ZIP_MAX_ENTRIES} 個までです。分割の条件を見直してください。`);
+  }
+}
+
+/**
 ZIPファイルを組み立てる。
 @param {ZipFile[]} files 格納するファイル。
 @param {Date} date 更新日時。
@@ -2607,6 +2697,7 @@ ZIPファイルを組み立てる。
 ファイル名はUTF-8とし、汎用フラグの11ビット目で明示する。
 */
 function buildZip(files, date) {
+  checkZipLimits(files.map((file) => ({name: file.name, size: file.data.length})));
   const encoder = new TextEncoder();
   const parts = [];
   const directory = [];
@@ -2664,7 +2755,7 @@ function buildZip(files, date) {
 // #region app
 
 /** 表示するバージョン。出力のたびに内容に応じて改定する。 */
-const APP_VERSION = "0.12.10";
+const APP_VERSION = "1.0.0";
 
 /** 設定を保存するキー。 */
 const STORAGE_KEY = "pdf-converter.settings";
@@ -3141,7 +3232,10 @@ function blankLayout(item, settings) {
     pageW: (landscape ? height : width) * PT_PER_MM,
     pageH: (landscape ? width : height) * PT_PER_MM,
     rect: {x: 0, y: 0, w: 0, h: 0},
-    clip: null
+    clip: null,
+    margin: 0,
+    marginClamped: false,
+    userUnit: 1
   };
 }
 
@@ -3222,19 +3316,23 @@ function drawCard(item, settings) {
   drawPage(item.canvas, item, settings, PREVIEW_BOX);
   if (item.status !== "ready") return;
 
+  const meta = item.el.querySelector(".card-meta");
+  const before = meta.textContent;
   if (item.kind === "blank") {
     const size = blankLayout(item, settings);
-    const mm = (value) => Math.round(value / PT_PER_MM);
-    item.el.querySelector(".card-meta").textContent = `${mm(size.pageW)} × ${mm(size.pageH)} mm`;
-    return;
+    const unit = size.userUnit ?? 1;
+    const mm = (value) => Math.round(value * unit / PT_PER_MM);
+    meta.textContent = `${mm(size.pageW)} × ${mm(size.pageH)} mm`;
   }
-
-  const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
-  const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
-  const outputText = output.scaled ? ` → ${output.width} × ${output.height} px` : "";
-  const rotationText = item.rotation === 0 ? "" : `、${item.rotation}°回転`;
-  item.el.querySelector(".card-meta").textContent =
-      `${item.pixelW} × ${item.pixelH} px${outputText}${rotationText}`;
+  else {
+    const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
+    const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
+    const outputText = output.scaled ? ` → ${output.width} × ${output.height} px` : "";
+    const rotationText = item.rotation === 0 ? "" : `、${item.rotation}°回転`;
+    meta.textContent = `${item.pixelW} × ${item.pixelH} px${outputText}${rotationText}`;
+  }
+  // 文字数が変わると折り返しの行数、つまりカードの高さが変わる
+  if (meta.textContent !== before) bumpLayout();
 }
 
 /**
@@ -3306,9 +3404,9 @@ function drawPage(canvas, item, settings, box) {
   ctx.drawImage(item.thumb, -drawW / 2, -drawH / 2, drawW, drawH);
   ctx.restore();
 
-  if (settings.marginMm > 0 && settings.pageSize !== "image") {
-    // 余白の位置を示す補助線（PDFには出力しない）
-    const margin = settings.marginMm * PT_PER_MM;
+  if (layout.margin > 0 && settings.pageSize !== "image") {
+    // 余白の位置を示す補助線（PDFには出力しない）。実際に使われた値で描く
+    const margin = layout.margin;
     ctx.strokeStyle = guideColor(settings.background);
     ctx.lineWidth = 1 / scale;
     ctx.setLineDash([3 / scale, 3 / scale]);
@@ -3327,6 +3425,41 @@ function redrawAll() {
 }
 
 /**
+区切りごとに、それが始めるファイルの番号を求める。
+@param {Item[]} items 並び順の項目。
+@param {boolean} manual 手動分割が有効な場合はtrue。
+@returns {Map<Item, ?number>} 区切りから番号への対応。ファイルを作らない区切りはnull。
+@remarks
+buildGroupsのmanualと同じ判定にする。画面のラベルが実際の出力と食い違わないよう、
+空のファイルを作る区切り（連続した区切り、先頭と末尾の区切り）は番号を持たない。
+*/
+function assignFileNumbers(items, manual) {
+  const numbers = new Map();
+  let number = 1;
+  let count = 0;
+  let lastStarter = null;
+  for (const item of items) {
+    if (item.kind !== "divider") {
+      count++;
+      continue;
+    }
+    // 直前のファイルが空のままの区切りは、何も分けないので番号を持たない
+    if (manual && count > 0) {
+      number++;
+      count = 0;
+      numbers.set(item, number);
+      lastStarter = item;
+    }
+    else {
+      numbers.set(item, null);
+    }
+  }
+  // 末尾の区切りより後に画像が無ければ、そのファイルは作られない
+  if (lastStarter !== null && count === 0) numbers.set(lastStarter, null);
+  return numbers;
+}
+
+/**
 カードの並び順、番号、選択状態を画面に反映する。
 @remarks
 区切りがある場合は、通し番号をファイルごとに振り直す。
@@ -3336,21 +3469,22 @@ function renderOrder() {
   const fragment = document.createDocumentFragment();
   const manual = $("#split-mode").value === "manual";
   const hasDivider = state.items.some((item) => item.kind === "divider");
-  if (hasDivider && state.items[0].kind !== "divider") {
+  const hasPage = state.items.some((item) => item.kind !== "divider");
+  const numbers = assignFileNumbers(state.items, manual);
+  if (hasDivider && hasPage) {
     dom.firstGroup.querySelector(".divider-label").textContent = manual ? "ファイル 1" : "区切り（未使用）";
     dom.firstGroup.classList.toggle("inactive", !manual);
     fragment.append(dom.firstGroup);
   }
 
-  let fileNumber = 1;
   let pageNumber = 1;
   for (const item of state.items) {
     if (item.kind === "divider") {
-      fileNumber++;
-      if (manual) pageNumber = 1;
+      const number = numbers.get(item);
+      if (number !== null) pageNumber = 1;
       item.el.querySelector(".divider-label").textContent =
-          manual ? `ファイル ${fileNumber}` : "区切り（未使用）";
-      item.el.classList.toggle("inactive", !manual);
+          number === null ? "区切り（未使用）" : `ファイル ${number}`;
+      item.el.classList.toggle("inactive", number === null);
     }
     else {
       item.el.querySelector(".card-index").textContent = String(pageNumber);
@@ -3360,6 +3494,15 @@ function renderOrder() {
     fragment.append(item.el);
   }
   dom.grid.replaceChildren(fragment);
+  bumpLayout();
+
+  // 空ページは近くの画像から大きさを決めるため、並びが変わるたびに描き直す
+  const blanks = state.items.filter((item) => item.kind === "blank");
+  if (blanks.length > 0) {
+    const settings = getSettings();
+    for (const item of blanks) drawCard(item, settings);
+  }
+
   if (state.spread) renderSpread();
   updateStatus();
 }
@@ -3468,15 +3611,20 @@ function updateStatus() {
   if (loading > 0) parts.push(`読み込み中 ${loading}`);
   dom.status.textContent = parts.join("／");
 
+  /*
+  書き出し中は一覧を変えられては困る。pointer-events: noneはキーボードを
+  止めないため、見た目ではなくdisabledで塞ぐ。
+  */
   for (const id of ["#rotate-left", "#rotate-right", "#reset", "#remove-selected"]) {
-    $(id).disabled = selectedCount === 0;
+    $(id).disabled = state.busy || selectedCount === 0;
   }
   for (const id of ["#sort-asc", "#sort-desc", "#clear"]) {
-    $(id).disabled = state.items.length === 0;
+    $(id).disabled = state.busy || state.items.length === 0;
   }
   for (const id of ["#add-divider", "#add-blank"]) {
     $(id).disabled = state.busy || images === 0;
   }
+  $("#toggle-view").disabled = state.busy;
   dom.exportButton.disabled = state.busy || images === 0 || loading > 0;
 }
 
@@ -3523,6 +3671,8 @@ function updateSelection() {
 @param {string} action 操作名。
 */
 function runCardAction(item, action) {
+  // カード上のボタンはキーボードから押せるため、ここでも塞ぐ
+  if (state.busy) return;
   switch (action) {
     case "rotate-left":
       rotateItems([item.id], -90);
@@ -3672,6 +3822,7 @@ function clearDropIndicator() {
 */
 function findDropTarget(clientX, clientY) {
   if (dragBoxes.length === 0) return null;
+  dragBoxes = freshCardBoxes(dragBoxes);
   const origin = dom.grid.getBoundingClientRect();
   const x = clientX - origin.left;
   const y = clientY - origin.top;
@@ -3739,6 +3890,33 @@ function moveSelectedToDropTarget() {
 }
 
 /**
+カードの配置や大きさが変わるたびに増える。
+@type {number}
+@remarks
+読み込みが終わると説明文の行数が変わり、カードの高さも変わる。
+控えた座標のまま判定すると挿入位置がずれるため、世代で古さを見る。
+*/
+let layoutVersion = 0;
+
+/** @type {number} 座標を控えたときの世代。 */
+let capturedLayout = -1;
+
+/** カードの配置が変わったことを記録する。 */
+function bumpLayout() {
+  layoutVersion++;
+}
+
+/**
+控えたカード位置が古ければ取り直す。
+@param {CardBox[]} boxes 控えてある矩形。
+@returns {CardBox[]} 最新の矩形。
+*/
+function freshCardBoxes(boxes) {
+  if (boxes.length === 0 || capturedLayout === layoutVersion) return boxes;
+  return captureCardBoxes();
+}
+
+/**
 @typedef {object} CardBox
 @property {number} id 項目の識別番号。
 @property {number} left グリッド座標の左端。
@@ -3755,6 +3933,7 @@ function moveSelectedToDropTarget() {
 ドラッグ中に毎回レイアウトを読み直さずに済ませるために使う。
 */
 function captureCardBoxes() {
+  capturedLayout = layoutVersion;
   const origin = dom.grid.getBoundingClientRect();
   return state.items.map((item) => {
     const box = item.el.getBoundingClientRect();
@@ -3840,13 +4019,16 @@ function updateMarquee(event) {
   dom.marquee.style.width = `${Math.max(0, right - left)}px`;
   dom.marquee.style.height = `${Math.max(0, bottom - top)}px`;
 
-  state.selected = new Set(marquee.base);
+  marquee.boxes = freshCardBoxes(marquee.boxes);
+  // 読み込みに失敗した画像は途中で取り除かれるため、残っている項目だけを選ぶ
+  const alive = new Set(state.items.map((item) => item.id));
+  state.selected = new Set([...marquee.base].filter((id) => alive.has(id)));
   for (const card of marquee.boxes) {
     const hit = card.left < area.right
         && card.right > area.left
         && card.top < area.bottom
         && card.bottom > area.top;
-    if (hit) state.selected.add(card.id);
+    if (hit && alive.has(card.id)) state.selected.add(card.id);
   }
   updateSelection();
 }
@@ -4185,16 +4367,26 @@ PDF埋め込み用の画像データを用意する。
 @param {File} file 元ファイル。
 @param {OutputSize} output 出力する画素数。
 @param {PageSettings} settings ページ設定。
+@param {{width: number, height: number}} [expected] ブラウザがデコードした表示上の画素数。
 @returns {Promise<PdfImage>} 画像データ。
 @remarks
 縮小も再圧縮も不要なJPEGだけが、画素に触れずにそのまま埋め込まれる。
 それ以外はブラウザでデコードし直す経路を通る。
 */
-async function prepareImage(file, output, settings) {
+async function prepareImage(file, output, settings, expected) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const jpeg = parseJpeg(bytes);
-  if (jpeg && !settings.recompress && !output.scaled) {
-    const swap = jpeg.orientation >= 5;
+  const swap = jpeg !== null && jpeg.orientation >= 5;
+  /*
+  そのまま埋め込む場合、向きの判定はこちらの読み取りだけが頼りになる。
+  ブラウザがデコードした大きさと食い違うなら、向きの解釈が割れている。
+  黙って歪んだページを作るより、確実なラスタライズへ回す。
+  */
+  const agrees = expected === undefined
+      || jpeg === null
+      || ((swap ? jpeg.height : jpeg.width) === expected.width
+          && (swap ? jpeg.width : jpeg.height) === expected.height);
+  if (jpeg && agrees && !settings.recompress && !output.scaled) {
     const data = settings.stripMetadata ? stripJpegMetadata(bytes) : bytes;
     return {
       width: jpeg.width,
@@ -4209,7 +4401,12 @@ async function prepareImage(file, output, settings) {
       matrix: orientationMatrix(jpeg.orientation)
     };
   }
-  return rasterizeImage(file, output, settings, jpeg !== null);
+  /*
+  そのまま埋め込めないJPEG（プログレッシブなど）も、元がJPEGであることに変わりはない。
+  parseJpegの判定ではなくSOIマーカーで見ないと、写真が可逆圧縮で埋め込まれて桁違いに膨らむ。
+  */
+  const isJpegFile = bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8;
+  return rasterizeImage(file, output, settings, isJpegFile);
 }
 
 /**
@@ -4366,9 +4563,25 @@ function setProgress(done, total, label) {
   dom.progressLabel.textContent = label;
 }
 
-/** 次の描画フレームまで待つ。 */
+/**
+進捗を描画する隙を作るために少し待つ。
+@returns {Promise<void>} 待機の完了。
+@remarks
+requestAnimationFrameは表示されていないタブでは呼ばれない。
+裏に回したまま書き出しが止まらないよう、その場合はタイマーで進める。
+*/
 function nextFrame() {
-  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    // 待っている最中にタブが裏へ回ってもいいよう、タイマーも並べて張っておく
+    requestAnimationFrame(finish);
+    setTimeout(finish, FRAME_TIMEOUT);
+  });
 }
 
 /** PDFを作成してダウンロードする。 */
@@ -4389,6 +4602,7 @@ async function exportPdf() {
   const documents = [];
   const failed = [];
   const clamped = [];
+  let marginClamped = false;
   let current = null;
   let done = 0;
 
@@ -4423,8 +4637,12 @@ async function exportPdf() {
         try {
           const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
           const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
-          const image = await prepareImage(item.file, output, settings);
+          const image = await prepareImage(item.file, output, settings, {
+            width: item.pixelW,
+            height: item.pixelH
+          });
           if (image.displayW < output.width) clamped.push(item.file.name);
+          if (layout.marginClamped) marginClamped = true;
 
           const bytes = image.data.length + (image.alpha === null ? 0 : image.alpha.length);
           if (current === null) {
@@ -4474,6 +4692,11 @@ async function exportPdf() {
       downloadBlob(outputs[0].blob, outputs[0].name);
     }
     else {
+      /*
+      ZIPを組むには全ファイルを同時にメモリへ載せる必要がある。
+      上限を超えるものを読み込んでからでは遅いので、先に大きさだけで判定する。
+      */
+      checkZipLimits(outputs.map((output) => ({name: output.name, size: output.blob.size})));
       const files = [];
       for (const output of outputs) {
         files.push({name: output.name, data: new Uint8Array(await output.blob.arrayBuffer())});
@@ -4489,6 +4712,9 @@ async function exportPdf() {
     }
     else if (clamped.length > 0) {
       showMessage(`${summary}次の画像はブラウザの上限を超えるため、指定より小さく変換しました。\n${listNames(clamped)}`, true);
+    }
+    else if (marginClamped) {
+      showMessage(`${summary}余白が用紙に対して大きすぎるため、短辺の45%まで減らしました。`, true);
     }
     else {
       showMessage(summary);
@@ -4666,7 +4892,18 @@ function saveSettings() {
 function scheduleSave() {
   if (!settingsReady) return;
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(saveSettings, SAVE_DELAY);
+  saveTimer = setTimeout(() => {
+    saveTimer = 0;
+    saveSettings();
+  }, SAVE_DELAY);
+}
+
+/** 予約済みの保存があれば今すぐ書き出す。 */
+function flushSave() {
+  if (!settingsReady || saveTimer === 0) return;
+  clearTimeout(saveTimer);
+  saveTimer = 0;
+  saveSettings();
 }
 
 /**
@@ -4684,7 +4921,8 @@ function syncResetButtons() {
     const button = document.querySelector(
       `.control-reset[data-reset="${entry.selector.slice(1)}"]`
     );
-    if (button !== null) button.disabled = !differs;
+    // 書き出し中に設定を戻されると、途中で読む文書情報が変わってしまう
+    if (button !== null) button.disabled = state.busy || !differs;
   }
   $("#reset-all").disabled = state.busy || !changed;
 }
@@ -4825,8 +5063,18 @@ function bindEvents() {
   $("#confirm-ok").addEventListener("click", () => dom.confirm.close("ok"));
   $("#confirm-cancel").addEventListener("click", () => dom.confirm.close("cancel"));
   dom.confirm.addEventListener("click", (event) => {
-    // 中身の外側を押した場合はキャンセル扱い
-    if (event.target === dom.confirm) dom.confirm.close("cancel");
+    /*
+    背景を押した場合はキャンセル扱い。
+    dialog自身の余白もevent.targetがdialogになるため、
+    押した座標がdialogの矩形の外にあるかどうかで判定する。
+    */
+    if (event.target !== dom.confirm) return;
+    const rect = dom.confirm.getBoundingClientRect();
+    const outside = event.clientX < rect.left
+        || event.clientX > rect.right
+        || event.clientY < rect.top
+        || event.clientY > rect.bottom;
+    if (outside) dom.confirm.close("cancel");
   });
   // Escキーで閉じた場合もここを通るため、結果の確定はcloseに一本化する
   dom.confirm.addEventListener("close", () => {
@@ -4838,7 +5086,15 @@ function bindEvents() {
   $("#outline-mode").addEventListener("change", syncSettingControls);
   $("#add-divider").addEventListener("click", () => {
     insertItem(createDivider());
-    $("#split-mode").value = "manual";
+    /*
+    値を代入してもchangeは起きないため、保存とリセットボタンに伝わらない。
+    他の経路と同じ扱いになるよう、イベントを自分で送る。
+    */
+    const splitMode = $("#split-mode");
+    if (splitMode.value !== "manual") {
+      splitMode.value = "manual";
+      splitMode.dispatchEvent(new Event("change", {bubbles: true}));
+    }
     syncSettingControls();
     renderOrder();
   });
@@ -4855,6 +5111,8 @@ function bindEvents() {
     // 区切りの表示（有効・無効）と見開きの区切り位置が変わる
     renderOrder();
   });
+  // 分割の境目が動くため、ファイルの見出しを付け直す。容量での分割は書き出し時に決まる
+  $("#split-pages").addEventListener("input", renderOrder);
 
   $("#help-open").addEventListener("click", () => dom.help.showModal());
   $("#help-close").addEventListener("click", () => dom.help.close());
@@ -4932,7 +5190,9 @@ function bindEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (state.busy || dom.help.open || event.target.closest("input, select, textarea")) return;
+    // 確認ダイアログの中からキー操作で一覧を変えられると、キャンセルの意味が無くなる
+    if (state.busy || dom.help.open || dom.confirm.open) return;
+    if (event.target.closest("input, select, textarea")) return;
     if (event.key === "Delete" || event.key === "Backspace") {
       if (state.selected.size === 0) return;
       event.preventDefault();
@@ -4947,6 +5207,12 @@ function bindEvents() {
       state.selected.clear();
       updateSelection();
     }
+  });
+
+  // 予約した保存を書き出す前に閉じられると、直前の変更が落ちる
+  window.addEventListener("pagehide", flushSave);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) flushSave();
   });
 }
 
