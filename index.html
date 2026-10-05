@@ -359,6 +359,78 @@ select:focus-visible {
   color: var(--text);
 }
 
+.reset-all {
+  min-height: 32px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.reset-all:hover:not(:disabled) {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.reset-all:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 確認ダイアログ */
+.modal {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.modal::backdrop {
+  background: rgba(10, 14, 18, 0.45);
+}
+
+.modal h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.modal p {
+  margin: 0 0 18px;
+  color: var(--muted);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.modal-actions button {
+  min-height: 32px;
+  padding: 0 16px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.modal-actions button:hover {
+  background: var(--accent-soft);
+}
+
+.modal-actions .danger {
+  color: var(--danger);
+}
+
+.modal-actions .danger:hover {
+  background: rgba(179, 38, 30, 0.12);
+  border-color: var(--danger);
+}
+
 .segmented {
   display: flex;
   padding: 2px;
@@ -382,6 +454,7 @@ select:focus-visible {
 .segmented span {
   display: block;
   padding: 4px 2px;
+  white-space: nowrap;
   text-align: center;
   border-radius: 4px;
   cursor: pointer;
@@ -1087,114 +1160,138 @@ body.busy .settings {
   </main>
 
   <aside class="sidebar">
-    <div class="settings" id="settings">
-      <section>
-        <h2>ページ設定</h2>
-        <label class="field">
-          <span class="field-label">用紙サイズ</span>
-          <select id="page-size">
-            <option value="image">画像サイズに合わせる</option>
-            <option value="A3">A3（297 × 420 mm）</option>
-            <option value="A4" selected>A4（210 × 297 mm）</option>
-            <option value="A5">A5（148 × 210 mm）</option>
-            <option value="B4">B4 JIS（257 × 364 mm）</option>
-            <option value="B5">B5 JIS（182 × 257 mm）</option>
-            <option value="Letter">Letter（8.5 × 11 in）</option>
-            <option value="Legal">Legal（8.5 × 14 in）</option>
-          </select>
-        </label>
-        <div class="field">
-          <label class="field-label" for="pixel-dpi">画素の換算（dpi）</label>
-          <div class="control-group">
-            <input type="number" id="pixel-dpi" min="1" max="1200" step="1" value="96">
-            <button type="button" class="control-reset" data-reset="pixel-dpi" title="画素の換算を既定値に戻す" aria-label="画素の換算を既定値に戻す">
-              <svg class="icon"><use href="#i-reset"></use></svg>
-            </button>
-          </div>
-          <p class="note">画像の1pxをこの解像度でインチに換算します。96はブラウザと同じ基準です。</p>
+    <details class="settings panel" id="panel-page" open>
+      <summary>ページ設定</summary>
+      <label class="field">
+        <span class="field-label">用紙サイズ</span>
+        <select id="page-size">
+          <option value="image">画像サイズに合わせる</option>
+          <option value="A3">A3（297 × 420 mm）</option>
+          <option value="A4" selected>A4（210 × 297 mm）</option>
+          <option value="A5">A5（148 × 210 mm）</option>
+          <option value="B4">B4 JIS（257 × 364 mm）</option>
+          <option value="B5">B5 JIS（182 × 257 mm）</option>
+          <option value="Letter">Letter（8.5 × 11 in）</option>
+          <option value="Legal">Legal（8.5 × 14 in）</option>
+        </select>
+      </label>
+      <div class="field">
+        <label class="field-label" for="pixel-dpi">画素の換算（dpi）</label>
+        <div class="control-group">
+          <input type="number" id="pixel-dpi" min="1" max="1200" step="1" value="96">
+          <button type="button" class="control-reset" data-reset="pixel-dpi" title="画素の換算を既定値に戻す" aria-label="画素の換算を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
         </div>
-        <div class="field">
-          <span class="field-label">向き</span>
-          <div class="segmented">
-            <label title="画像の縦横比に合わせて向きを決める"><input type="radio" name="orientation" value="auto" checked><span>自動</span></label>
-            <label><input type="radio" name="orientation" value="portrait"><span>縦</span></label>
-            <label><input type="radio" name="orientation" value="landscape"><span>横</span></label>
-          </div>
+        <p class="note">画像の1pxをこの解像度でインチに換算します。96はブラウザと同じ基準です。</p>
+      </div>
+      <div class="field">
+        <span class="field-label">向き</span>
+        <div class="segmented">
+          <label title="画像の縦横比に合わせて向きを決める"><input type="radio" name="orientation" value="auto" checked><span>自動</span></label>
+          <label><input type="radio" name="orientation" value="portrait"><span>縦</span></label>
+          <label><input type="radio" name="orientation" value="landscape"><span>横</span></label>
         </div>
-        <div class="field">
-          <span class="field-label">画像の収め方</span>
-          <div class="segmented">
-            <label><input type="radio" name="fit" value="contain" checked><span>全体を表示</span></label>
-            <label><input type="radio" name="fit" value="cover"><span>埋める</span></label>
-            <label><input type="radio" name="fit" value="shrink"><span>縮小のみ</span></label>
-          </div>
+      </div>
+      <div class="field">
+        <span class="field-label">画像の収め方</span>
+        <div class="segmented">
+          <label><input type="radio" name="fit" value="contain" checked><span>全体を表示</span></label>
+          <label><input type="radio" name="fit" value="cover"><span>埋める</span></label>
+          <label><input type="radio" name="fit" value="shrink"><span>縮小のみ</span></label>
         </div>
-        <div class="field">
-          <label class="field-label" for="margin">余白（mm）</label>
-          <div class="control-group">
-            <input type="number" id="margin" min="0" max="100" step="1" value="0">
-            <button type="button" class="control-reset" data-reset="margin" title="余白を既定値に戻す" aria-label="余白を既定値に戻す">
-              <svg class="icon"><use href="#i-reset"></use></svg>
-            </button>
-          </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="margin">余白（mm）</label>
+        <div class="control-group">
+          <input type="number" id="margin" min="0" max="100" step="1" value="0">
+          <button type="button" class="control-reset" data-reset="margin" title="余白を既定値に戻す" aria-label="余白を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
         </div>
-        <div class="field">
-          <label class="field-label" for="background-hex">背景色</label>
-          <div class="control-group">
-            <input type="color" id="background" value="#ffffff" aria-label="背景色">
-            <input type="text" id="background-hex" value="#FFFFFF" spellcheck="false" maxlength="7">
-            <button type="button" class="control-reset" data-reset="background" title="背景色を既定値に戻す" aria-label="背景色を既定値に戻す">
-              <svg class="icon"><use href="#i-reset"></use></svg>
-            </button>
-          </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="background-hex">背景色</label>
+        <div class="control-group">
+          <input type="color" id="background" value="#ffffff" aria-label="背景色">
+          <input type="text" id="background-hex" value="#FFFFFF" spellcheck="false" maxlength="7">
+          <button type="button" class="control-reset" data-reset="background" title="背景色を既定値に戻す" aria-label="背景色を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
         </div>
-      </section>
+      </div>
+    </details>
 
-      <section>
-        <h2>画質・容量</h2>
-        <div class="field">
-          <label class="field-label" for="max-dpi">解像度の上限（dpi）</label>
-          <div class="control-group">
-            <input type="number" id="max-dpi" min="0" max="1200" step="1" value="0">
-            <button type="button" class="control-reset" data-reset="max-dpi" title="解像度の上限を既定値に戻す" aria-label="解像度の上限を既定値に戻す">
-              <svg class="icon"><use href="#i-reset"></use></svg>
-            </button>
-          </div>
+    <details class="settings panel" id="panel-output" open>
+      <summary>出力</summary>
+      <div class="field">
+        <label class="field-label" for="filename">ファイル名（.pdf）</label>
+        <div class="control-group">
+          <input type="text" id="filename" value="images" spellcheck="false">
+          <button type="button" class="control-reset" data-reset="filename" title="ファイル名を既定値に戻す" aria-label="ファイル名を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
         </div>
-        <div class="field">
-          <label class="field-label" for="max-edge">長辺の上限（px）</label>
-          <div class="control-group">
-            <input type="number" id="max-edge" min="0" max="60000" step="1" value="0">
-            <button type="button" class="control-reset" data-reset="max-edge" title="長辺の上限を既定値に戻す" aria-label="長辺の上限を既定値に戻す">
-              <svg class="icon"><use href="#i-reset"></use></svg>
-            </button>
-          </div>
-          <p class="note">どちらも0で無制限。両方を指定した場合は小さくなる方を使います。</p>
-        </div>
-        <div class="field">
-          <label class="field-label" for="jpeg-quality">JPEGの品質</label>
-          <div class="control-group">
-            <input type="range" id="jpeg-quality-range" min="1" max="100" step="1" value="90" aria-label="JPEGの品質">
-            <input type="number" id="jpeg-quality" min="1" max="100" step="1" value="90">
-            <button type="button" class="control-reset" data-reset="jpeg-quality" title="JPEGの品質を既定値に戻す" aria-label="JPEGの品質を既定値に戻す">
-              <svg class="icon"><use href="#i-reset"></use></svg>
-            </button>
-          </div>
-        </div>
-        <label class="check">
-          <input type="checkbox" id="recompress">
-          <span>常にJPEGで再圧縮する</span>
-        </label>
-        <label class="check">
-          <input type="checkbox" id="strip-metadata" checked>
-          <span>メタデータを除去する</span>
-        </label>
-        <p class="note">再圧縮しない場合でも、縮小が必要なJPEGは書き直しになります。</p>
-      </section>
-    </div>
+      </div>
+      <label class="field">
+        <span class="field-label">しおり</span>
+        <select id="outline-mode">
+          <option value="none">作成しない</option>
+          <option value="folders">フォルダのみ</option>
+          <option value="names">ファイル名のみ</option>
+          <option value="both" selected>フォルダとファイル名</option>
+        </select>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="outline-extension">
+        <span>ファイル名に拡張子を含める</span>
+      </label>
+    </details>
 
-    <section class="settings">
-      <h2>出力</h2>
+    <details class="settings panel" id="panel-quality">
+      <summary>画質・容量</summary>
+      <div class="field">
+        <label class="field-label" for="max-dpi">解像度の上限（dpi）</label>
+        <div class="control-group">
+          <input type="number" id="max-dpi" min="0" max="1200" step="1" value="0">
+          <button type="button" class="control-reset" data-reset="max-dpi" title="解像度の上限を既定値に戻す" aria-label="解像度の上限を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+      </div>
+      <div class="field">
+        <label class="field-label" for="max-edge">長辺の上限（px）</label>
+        <div class="control-group">
+          <input type="number" id="max-edge" min="0" max="60000" step="1" value="0">
+          <button type="button" class="control-reset" data-reset="max-edge" title="長辺の上限を既定値に戻す" aria-label="長辺の上限を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+        <p class="note">どちらも0で無制限。両方を指定した場合は小さくなる方を使います。</p>
+      </div>
+      <div class="field">
+        <label class="field-label" for="jpeg-quality">JPEGの品質</label>
+        <div class="control-group">
+          <input type="range" id="jpeg-quality-range" min="1" max="100" step="1" value="90" aria-label="JPEGの品質">
+          <input type="number" id="jpeg-quality" min="1" max="100" step="1" value="90">
+          <button type="button" class="control-reset" data-reset="jpeg-quality" title="JPEGの品質を既定値に戻す" aria-label="JPEGの品質を既定値に戻す">
+            <svg class="icon"><use href="#i-reset"></use></svg>
+          </button>
+        </div>
+      </div>
+      <label class="check">
+        <input type="checkbox" id="recompress">
+        <span>常にJPEGで再圧縮する</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="strip-metadata" checked>
+        <span>メタデータを除去する</span>
+      </label>
+      <p class="note">再圧縮しない場合でも、縮小が必要なJPEGは書き直しになります。</p>
+    </details>
+
+    <details class="settings panel" id="panel-split">
+      <summary>分割と表示</summary>
       <label class="field">
         <span class="field-label">分割</span>
         <select id="split-mode">
@@ -1225,19 +1322,6 @@ body.busy .settings {
         <p class="note">組み立てながら判定するため、指定を多少超えることがあります。</p>
       </div>
       <label class="field">
-        <span class="field-label">しおり</span>
-        <select id="outline-mode">
-          <option value="none">作成しない</option>
-          <option value="folders">フォルダのみ</option>
-          <option value="names">ファイル名のみ</option>
-          <option value="both" selected>フォルダとファイル名</option>
-        </select>
-      </label>
-      <label class="check">
-        <input type="checkbox" id="outline-extension">
-        <span>ファイル名に拡張子を含める</span>
-      </label>
-      <label class="field">
         <span class="field-label">ページレイアウト</span>
         <select id="page-layout">
           <option value="none" selected>指定しない</option>
@@ -1252,18 +1336,9 @@ body.busy .settings {
         <span>右綴じ（右から左へ）</span>
       </label>
       <p class="note">ビューワーによっては、これらの指定が反映されません。</p>
-      <div class="field">
-        <label class="field-label" for="filename">ファイル名（.pdf）</label>
-        <div class="control-group">
-          <input type="text" id="filename" value="images" spellcheck="false">
-          <button type="button" class="control-reset" data-reset="filename" title="ファイル名を既定値に戻す" aria-label="ファイル名を既定値に戻す">
-            <svg class="icon"><use href="#i-reset"></use></svg>
-          </button>
-        </div>
-      </div>
-    </section>
+    </details>
 
-    <details class="settings panel">
+    <details class="settings panel" id="panel-document">
       <summary>文書情報</summary>
       <div class="field">
         <label class="field-label" for="doc-title">タイトル</label>
@@ -1307,6 +1382,7 @@ body.busy .settings {
         <input type="checkbox" id="doc-date">
         <span>作成日時を記録する</span>
       </label>
+      <p class="note">タイトル、件名、キーワードは保存されません。</p>
     </details>
 
     <div class="export">
@@ -1315,6 +1391,7 @@ body.busy .settings {
         <progress id="progress-bar" value="0" max="1"></progress>
         <span class="progress-label" id="progress-label"></span>
       </div>
+      <button type="button" class="reset-all" id="reset-all" disabled>設定をすべて初期化</button>
     </div>
   </aside>
 </div>
@@ -1331,6 +1408,18 @@ body.busy .settings {
 >
 <input type="file" id="folder-input" multiple hidden webkitdirectory>
 
+<dialog class="modal" id="confirm-reset">
+  <h2>設定をすべて初期化</h2>
+  <p>
+    すべての設定が既定値に戻ります。パネルの開閉状態も含まれます。
+    読み込んだ画像の一覧には影響しません。この操作は元に戻せません。
+  </p>
+  <div class="modal-actions">
+    <button type="button" id="confirm-cancel">キャンセル</button>
+    <button type="button" class="danger" id="confirm-ok">初期化</button>
+  </div>
+</dialog>
+
 <dialog class="help-dialog" id="help">
   <div class="help-head">
     <h2>PDF Converter</h2>
@@ -1341,39 +1430,25 @@ body.busy .settings {
     <h3>注意事項</h3>
     <ul>
       <li>画像はこのブラウザ内だけで処理され、外部へは送信されません。ページ自体の通信をCSP（Content Security Policy）で遮断しているため、送信そのものが起こりません。</li>
-      <li>「メタデータを除去する」を外すと、撮影日時や位置情報を含むEXIFがPDF内に残ります。既定では取り除きます。</li>
-      <li>文書情報に入れた内容は、PDFを開けば誰でも読める形で保存されます。作成日時も既定では記録しません。</li>
-      <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。「常にJPEGで再圧縮する」で小さくできます。</li>
+      <li>設定はこのブラウザに保存され、次に開いたときに引き継がれます。保存されるのは既定値から変えた項目だけです。画像や作成したPDFは保存されません。</li>
+      <li>文書情報に入れた内容は、PDFを開けば誰でも読める形で保存されます。タイトル、件名、キーワードはブラウザにも保存しません。作成日時も既定では記録しません。</li>
+      <li>「メタデータを除去する」を外すと、撮影日時や位置情報を含むEXIFがPDF内に残ります。</li>
       <li>縮小や再圧縮を行う画像は、ブラウザの上限（一辺16384px、総画素数約6700万）を超える場合、指定より小さく変換します。該当した画像は完了時に知らせます。</li>
-      <li>プレビューに表示される破線は余白の位置を示す補助線で、PDFには出力されません。</li>
-      <li>ページレイアウトと右綴じは、開いたときの初期状態を伝える指定です。ブラウザ内蔵のビューワーは基本的に無視し、反映するビューワーでも、開いたあとは利用者の操作が優先されます。ツールバーの「見開き」は、指定が反映された場合の並びを示すものです。</li>
-      <li>分割して2つ以上になる場合は、ZIPにまとめて渡します。ファイル名は <code>images_1.pdf</code> のような連番になります。</li>
-      <li>しおりは並び順をもとに自動で作ります。並べ替えで同じフォルダの画像が離れた場合は、その回数だけ項目ができます。</li>
+      <li>ページレイアウト、右綴じ、しおりパネルの表示は、開いたときの初期状態を伝える指定です。ブラウザ内蔵のビューワーは基本的に無視し、反映するビューワーでも、開いたあとは利用者の操作が優先されます。</li>
+      <li>プレビューに出る破線は補助線で、PDFには出力されません。余白の位置と、空ページの範囲を示します。</li>
       <li>このHTMLをファイルとして直接開いている場合、ブラウザがフォルダのドラッグ&amp;ドロップを受け付けないことがあります。その場合はツールバーの「フォルダを追加」から選んでください。</li>
     </ul>
 
     <h3>対応フォーマット</h3>
     <p>入力はブラウザがデコードできる画像のみを扱います。JPEG、PNG、BMP、WebP、GIF、AVIF。アニメーションGIFとAPNGは先頭フレームだけを使います。WebPとAVIFは、ブラウザとそのバージョンによって対応状況が異なります。TIFF、HEIC、SVGは対象外です。出力はPDF 1.7です。</p>
 
-    <h3>用語と単位</h3>
+    <h3>ページ設定</h3>
     <dl>
-      <dt>pt</dt>
-      <dd>ポイント。PDFが長さに使う単位で、1pt = 1/72インチ。設定したmmはptに換算して出力します。</dd>
+      <dt>画像サイズに合わせる</dt>
+      <dd>用紙サイズを決めず、画像そのものの大きさをページサイズにします。画素数とページの実寸の対応は「画素の換算」で決まります。</dd>
 
       <dt>画素の換算（dpi）</dt>
       <dd>画像1pxを何分の1インチとみなすかの設定。既定の96はCSSが定める値で、ブラウザがHTMLを印刷するときと同じ基準です。「画像サイズに合わせる」でのページサイズと、「縮小のみ」で等倍とみなす大きさがこれで決まります。96なら3000pxの画像は約794mm幅になります。</dd>
-
-      <dt>解像度の上限（dpi）</dt>
-      <dd>ページ上の実寸に対して画素が多すぎる画像を縮小します。A4幅いっぱいに置いた画像を150dpiに抑えると、横は約1240pxになります。0で無制限。</dd>
-
-      <dt>長辺の上限（px）</dt>
-      <dd>用紙の大きさに関係なく、画素数そのもので縮小します。解像度の上限と併用した場合は、縮小率の小さい方を使います。0で無制限。</dd>
-
-      <dt>JPEGの品質</dt>
-      <dd>画像をJPEGとして書き出すときの品質。数字が小さいほど軽くなり、細い線や文字から劣化が目立ちます。元がJPEGの画像を縮小する場合は、再圧縮の設定にかかわらずこの品質で書き直します。</dd>
-
-      <dt>常にJPEGで再圧縮する</dt>
-      <dd>縮小の要否にかかわらず、すべての画像をJPEGで圧縮します。PNGやスクリーンショットを含むPDFを小さくしたいときに使います。透過部分は背景色の上に重ねてから圧縮するため、見た目は変わりません。</dd>
 
       <dt>全体を表示</dt>
       <dd>画像全体が余白の内側に収まるように拡大・縮小します。縦横比は保たれ、余った方向に空きができます。</dd>
@@ -1386,19 +1461,37 @@ body.busy .settings {
 
       <dt>背景色</dt>
       <dd>ページ全面に塗る色。画像が収まらずにできた余りの部分だけでなく、画像の下にも敷かれるため、透過を含む画像の透明部分もこの色になります。</dd>
+    </dl>
+
+    <h3>出力</h3>
+    <dl>
+      <dt>ファイル名</dt>
+      <dd>拡張子を含めずに入力します。<code>.pdf</code> は必ず付きます。分割して2つ以上になる場合は <code>images_1.pdf</code> のような連番になり、ZIPにまとめて渡します。</dd>
 
       <dt>しおり</dt>
-      <dd>PDFの目次にあたる仕組みで、ビューワーの横に出る階層型のナビゲーションです。アウトラインとも呼びます。フォルダから追加した画像の階層と、各ページのファイル名から作ります。しおりがある場合は、開いたときにパネルを表示するよう指定しますが、この指定を無視するビューワーもあります。</dd>
+      <dd>PDFの目次にあたる仕組みで、ビューワーの横に出る階層型のナビゲーションです。アウトラインとも呼びます。フォルダから追加した画像の階層と、各ページのファイル名から作ります。並び順をそのままたどって作るので、並べ替えで同じフォルダの画像が離れた場合は、その回数だけ項目ができます。</dd>
+    </dl>
 
-      <dt>ページレイアウト</dt>
-      <dd>開いたときの表示方法をビューワーに伝える指定です。「表紙を単独」は1ページ目だけを単独で並べ、2ページ目から対にします。「先頭から2ページ」は1ページ目と2ページ目を対にします。ツールバーの「見開き」で、この並びを画面上でも確認できます。あくまで初期状態の指定なので、開いたあとの表示はビューワー側の操作が優先されます。</dd>
+    <h3>画質・容量</h3>
+    <dl>
+      <dt>解像度の上限（dpi）</dt>
+      <dd>ページ上の実寸に対して画素が多すぎる画像を縮小します。A4幅いっぱいに置いた画像を150dpiに抑えると、横は約1240pxになります。0で無制限。</dd>
 
-      <dt>右綴じ</dt>
-      <dd>ページを右から左へ並べる指定です。縦書きの資料や漫画で使います。見開きの左右が入れ替わります。</dd>
+      <dt>長辺の上限（px）</dt>
+      <dd>用紙の大きさに関係なく、画素数そのもので縮小します。解像度の上限と併用した場合は、縮小率の小さい方を使います。0で無制限。</dd>
 
-      <dt>空ページ</dt>
-      <dd>何も描かないページです。見開きで並びがずれるときに挟んで調整します。大きさは最も近い画像のページに合わせ、背景色だけを塗ります。しおりの項目にはなりません。プレビューに出る破線は、白い背景でも空ページと分かるようにするための補助線で、PDFには出力されません。</dd>
+      <dt>JPEGの品質</dt>
+      <dd>画像をJPEGとして書き出すときの品質。数字が小さいほど軽くなり、細い線や文字から劣化が目立ちます。元がJPEGの画像を縮小する場合は、再圧縮の設定にかかわらずこの品質で書き直します。</dd>
 
+      <dt>常にJPEGで再圧縮する</dt>
+      <dd>縮小の要否にかかわらず、すべての画像をJPEGで圧縮します。JPEG以外は既定で可逆圧縮のまま埋め込むため、写真をPNGで保存したものはPDFが大きくなります。これを入れると小さくできます。透過部分は背景色の上に重ねてから圧縮するので、見た目は変わりません。</dd>
+
+      <dt>メタデータを除去する</dt>
+      <dd>JPEGからEXIF、XMP、コメントなどの区画を取り除きます。画素データには触れないため画質は変わりません。向きの情報は取り除く前に読み取って反映します。</dd>
+    </dl>
+
+    <h3>分割と表示</h3>
+    <dl>
       <dt>分割（手動）</dt>
       <dd>ツールバーの「区切り」で、選択したカードの手前に区切りを入れます。区切りから次の区切りまでが1つのPDFになります。区切りは画像と同じように移動・削除できます。分割方式が手動以外のときは、置いたままでも使われません。</dd>
 
@@ -1407,6 +1500,36 @@ body.busy .settings {
 
       <dt>分割（フォルダ）</dt>
       <dd>同じフォルダに直接入っている画像をひとまとまりにします。サブフォルダは別のPDFになります。</dd>
+
+      <dt>空ページ</dt>
+      <dd>何も描かないページです。見開きで並びがずれるときに挟んで調整します。大きさは最も近い画像のページに合わせ、背景色だけを塗ります。しおりの項目にはなりません。</dd>
+
+      <dt>ページレイアウト</dt>
+      <dd>開いたときの表示方法をビューワーに伝える指定です。「表紙を単独」は1ページ目だけを単独で並べ、2ページ目から対にします。「先頭から2ページ」は1ページ目と2ページ目を対にします。ツールバーの「見開き」で、この並びを画面上でも確認できます。</dd>
+
+      <dt>右綴じ</dt>
+      <dd>ページを右から左へ並べる指定です。縦書きの資料や漫画で使います。見開きの左右が入れ替わります。</dd>
+    </dl>
+
+    <h3>操作</h3>
+    <dl>
+      <dt>キー操作</dt>
+      <dd>Ctrl / ⌘ + A で全選択、Delete で選択したカードを削除、Esc で選択解除。何もない場所をドラッグすると矩形選択になります。</dd>
+
+      <dt>区切りと空ページの位置</dt>
+      <dd>どちらも選択したカードの手前に入ります。何も選択していない場合は末尾です。</dd>
+
+      <dt>名前順（自然順ソート）</dt>
+      <dd>ファイル名の中の数字を数値として比較します。<code>img2</code> が <code>img10</code> より前になります。フォルダから追加した画像はフォルダごとにまとまり、区切りと空ページは置いた位置から動きません。</dd>
+
+      <dt>見開き</dt>
+      <dd>ページレイアウトの指定どおりに並べて見るための表示です。閲覧専用で、この表示中は並べ替えなどの編集はできません。</dd>
+    </dl>
+
+    <h3>PDFの仕組み</h3>
+    <dl>
+      <dt>pt</dt>
+      <dd>ポイント。PDFが長さに使う単位で、1pt = 1/72インチ。設定したmmはptに換算して出力します。</dd>
 
       <dt>EXIF Orientation</dt>
       <dd>JPEGに記録された撮影時の向き。画素自体は回転しておらず「回転して表示せよ」という指示だけを持ちます。本ツールはこれを読み取り、PDF側の変換行列で向きを補正します。</dd>
@@ -1419,13 +1542,7 @@ body.busy .settings {
 
       <dt>SMask</dt>
       <dd>PDFで透過を表す仕組み。不透明度を別のグレースケール画像として保持します。透過を含む画像にだけ付きます。</dd>
-
-      <dt>自然順ソート</dt>
-      <dd>ファイル名の中の数字を数値として比較する並べ替え。<code>img2</code> が <code>img10</code> より前になります。</dd>
     </dl>
-
-    <h3>キー操作</h3>
-    <p>Ctrl / ⌘ + A で全選択、Delete で選択した画像を削除、Esc で選択解除。何もない場所をドラッグすると矩形選択になります。</p>
   </div>
 </dialog>
 
@@ -2395,27 +2512,75 @@ function buildZip(files, date) {
 // #region app
 
 /** 表示するバージョン。出力のたびに内容に応じて改定する。 */
-const APP_VERSION = "0.10.2";
+const APP_VERSION = "0.11.1";
+
+/** 設定を保存するキー。 */
+const STORAGE_KEY = "pdf-converter.settings";
 
 /**
-値を任意に変更できる設定項目の既定値。
-@remarks 要素のidをキーにする。リセットボタンの data-reset がこのキーを指す。
+保存形式のバージョン。
+@remarks
+値の意味が変わったときだけ上げる。項目の追加や削除では上げない。
+一致しない保存内容は丸ごと捨てる。
 */
-const CONTROL_DEFAULTS = {
-  margin: "0",
-  background: "#ffffff",
-  "pixel-dpi": "96",
-  "max-dpi": "0",
-  "max-edge": "0",
-  "jpeg-quality": "90",
-  filename: "images",
-  "doc-title": "",
-  "doc-author": "",
-  "doc-subject": "",
-  "doc-keywords": "",
-  "split-pages": "50",
-  "split-size": "10"
-};
+const STORAGE_VERSION = 1;
+
+/** 保存を書き出すまでの待ち時間（ミリ秒）。連続した操作をまとめる。 */
+const SAVE_DELAY = 200;
+
+/**
+@typedef {object} SettingEntry
+@property {string} key 保存に使う名前。要素idとは独立させる。
+@property {string} [selector] 対象のセレクタ。入力欄の場合に指定する。
+@property {string} [radio] ラジオボタンのname属性。
+@property {boolean} [persist] 保存するかどうか。既定はtrue。
+@property {*} def 既定値。起動時にDOMから読み取る。
+*/
+
+/**
+設定項目の一覧。
+@type {SettingEntry[]}
+@remarks
+保存の名前を要素idから切り離しているのは、idを変えても保存済みの値が
+孤児にならないようにするため。既定値はここには書かず、HTMLから読み取る。
+*/
+const SETTING_ENTRIES = [
+  {key: "page.size", selector: "#page-size"},
+  {key: "page.dpi", selector: "#pixel-dpi"},
+  {key: "page.orientation", radio: "orientation"},
+  {key: "page.fit", radio: "fit"},
+  {key: "page.margin", selector: "#margin"},
+  {key: "page.background", selector: "#background"},
+  {key: "output.filename", selector: "#filename"},
+  {key: "output.outline", selector: "#outline-mode"},
+  {key: "output.outlineExtension", selector: "#outline-extension"},
+  {key: "quality.maxDpi", selector: "#max-dpi"},
+  {key: "quality.maxEdge", selector: "#max-edge"},
+  {key: "quality.jpeg", selector: "#jpeg-quality"},
+  {key: "quality.recompress", selector: "#recompress"},
+  {key: "quality.stripMetadata", selector: "#strip-metadata"},
+  {key: "split.mode", selector: "#split-mode"},
+  {key: "split.pages", selector: "#split-pages"},
+  {key: "split.size", selector: "#split-size"},
+  {key: "view.layout", selector: "#page-layout"},
+  {key: "view.rightToLeft", selector: "#right-to-left"},
+  {key: "document.author", selector: "#doc-author"},
+  {key: "document.date", selector: "#doc-date"},
+  {key: "document.title", selector: "#doc-title", persist: false},
+  {key: "document.subject", selector: "#doc-subject", persist: false},
+  {key: "document.keywords", selector: "#doc-keywords", persist: false},
+  {key: "panel.page", selector: "#panel-page"},
+  {key: "panel.output", selector: "#panel-output"},
+  {key: "panel.quality", selector: "#panel-quality"},
+  {key: "panel.split", selector: "#panel-split"},
+  {key: "panel.document", selector: "#panel-document"}
+];
+
+/** 設定の復元が終わったかどうか。終わるまでは保存しない。 */
+let settingsReady = false;
+
+/** 保存をまとめるためのタイマー。 */
+let saveTimer = 0;
 
 /** キャンバスの一辺の上限（px）。これを超える画像は縮小して処理する。 */
 const MAX_CANVAS_EDGE = 16384;
@@ -2502,6 +2667,7 @@ const dom = {
   progressBar: $("#progress-bar"),
   progressLabel: $("#progress-label"),
   message: $("#message"),
+  confirmReset: $("#confirm-reset"),
   template: $("#card-template"),
   dividerTemplate: $("#divider-template"),
   blankTemplate: $("#blank-template"),
@@ -3825,7 +3991,7 @@ function hasFiles(event) {
 */
 function sanitizeFilename(value) {
   const name = value.trim().replace(/[\\/:*?"<>|]/g, "_").replace(/\.+$/, "");
-  return name === "" ? CONTROL_DEFAULTS.filename : name;
+  return name === "" ? settingDefault("#filename") : name;
 }
 
 /**
@@ -3998,6 +4164,7 @@ function setBusy(busy) {
   }
   if (!busy) syncSettingControls();
   dom.progress.hidden = !busy;
+  syncResetButtons();
   updateStatus();
 }
 
@@ -4167,18 +4334,190 @@ function downloadBlob(blob, filename) {
 }
 
 /**
-入力欄を既定値に戻す。
-@param {string} id 対象の要素id。CONTROL_DEFAULTS のキー。
-@remarks
-入力イベントを発生させ、プレビューの再描画や連動する入力欄の更新を、
-利用者が手で入力した場合と同じ経路で行う。
+設定項目の現在の値を読む。
+@param {SettingEntry} entry 対象の項目。
+@returns {*} 現在の値。
 */
-function resetControl(id) {
-  const el = $(`#${id}`);
-  if (!el) return;
-  el.value = CONTROL_DEFAULTS[id];
+function readSetting(entry) {
+  if (entry.radio) return document.querySelector(`input[name="${entry.radio}"]:checked`).value;
+  const el = $(entry.selector);
+  if (el.tagName === "DETAILS") return el.open;
+  return el.type === "checkbox" ? el.checked : el.value;
+}
+
+/**
+設定項目に値を適用する。
+@param {SettingEntry} entry 対象の項目。
+@param {*} value 適用する値。
+@remarks
+値を書いたあとに入力イベントを発生させ、利用者が手で操作した場合と同じ経路を通す。
+連動する入力欄の更新やプレビューの再描画を、二重に実装しないため。
+*/
+function applySetting(entry, value) {
+  if (entry.radio) {
+    const el = document.querySelector(`input[name="${entry.radio}"][value="${value}"]`);
+    if (el === null) return;
+    el.checked = true;
+    el.dispatchEvent(new Event("change", {bubbles: true}));
+    return;
+  }
+  const el = $(entry.selector);
+  if (el.tagName === "DETAILS") {
+    el.open = value;
+    return;
+  }
+  if (el.type === "checkbox") {
+    el.checked = value;
+    el.dispatchEvent(new Event("change", {bubbles: true}));
+    return;
+  }
+  el.value = value;
   el.dispatchEvent(new Event("input", {bubbles: true}));
   el.dispatchEvent(new Event("change", {bubbles: true}));
+}
+
+/**
+保存されていた値が、その項目に入れられるものか調べる。
+@param {SettingEntry} entry 対象の項目。
+@param {*} value 調べる値。
+@returns {boolean} 使える場合はtrue。
+@remarks
+手で書き換えられた保存内容で壊れないようにする。
+通らなかった項目だけを捨て、同じ保存内容の他の項目はそのまま適用する。
+*/
+function isValidSetting(entry, value) {
+  if (entry.radio) {
+    const buttons = [...document.querySelectorAll(`input[name="${entry.radio}"]`)];
+    return typeof value === "string" && buttons.some((el) => el.value === value);
+  }
+  const el = $(entry.selector);
+  if (el.tagName === "DETAILS" || el.type === "checkbox") return typeof value === "boolean";
+  if (typeof value !== "string") return false;
+  if (el.tagName === "SELECT") return [...el.options].some((option) => option.value === value);
+  if (el.type === "number") {
+    const number = Number(value);
+    return value.trim() !== ""
+        && Number.isFinite(number)
+        && number >= Number(el.min)
+        && number <= Number(el.max);
+  }
+  if (el.type === "color") return /^#[0-9a-f]{6}$/i.test(value);
+  return value.length <= 200;
+}
+
+/**
+既定値をHTMLから読み取る。
+@remarks
+既定値の出所をHTMLだけにして、JS側に表を持たない。
+保存値を適用する前に呼ぶ必要がある。
+*/
+function registerSettings() {
+  for (const entry of SETTING_ENTRIES) entry.def = readSetting(entry);
+}
+
+/**
+指定したセレクタの項目の既定値を返す。
+@param {string} selector 対象のセレクタ。
+@returns {*} 既定値。
+*/
+function settingDefault(selector) {
+  const entry = SETTING_ENTRIES.find((item) => item.selector === selector);
+  return entry === undefined ? "" : entry.def;
+}
+
+/** 保存されている設定を読み込んで適用する。 */
+function restoreSettings() {
+  let payload = null;
+  try {
+    payload = JSON.parse(localStorage.getItem(STORAGE_KEY));
+  }
+  catch (error) {
+    // 保存が使えない環境や壊れた内容は、既定値のまま進める
+    return;
+  }
+  if (payload === null || payload.v !== STORAGE_VERSION || typeof payload.values !== "object") {
+    return;
+  }
+  for (const entry of SETTING_ENTRIES) {
+    if (entry.persist === false) continue;
+    const value = payload.values[entry.key];
+    if (value === undefined || !isValidSetting(entry, value)) continue;
+    applySetting(entry, value);
+  }
+}
+
+/**
+既定値と異なる項目だけを保存する。
+@remarks
+全項目を保存すると、書き込んだ時点の既定値が固定されてしまう。
+差分だけにしておけば、将来既定値を変えたときに、その項目を触っていない利用者へ
+新しい既定値が届く。すべて既定値に戻った場合はキーごと消す。
+*/
+function saveSettings() {
+  const values = {};
+  let count = 0;
+  for (const entry of SETTING_ENTRIES) {
+    if (entry.persist === false) continue;
+    const value = readSetting(entry);
+    if (value === entry.def || !isValidSetting(entry, value)) continue;
+    values[entry.key] = value;
+    count++;
+  }
+  try {
+    if (count === 0) {
+      localStorage.removeItem(STORAGE_KEY);
+      return;
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({v: STORAGE_VERSION, values}));
+  }
+  catch (error) {
+    // 保存できない環境でも操作は続けられるようにする
+    console.error(error);
+  }
+}
+
+/** 保存を予約する。短い間隔で続く操作をまとめる。 */
+function scheduleSave() {
+  if (!settingsReady) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveSettings, SAVE_DELAY);
+}
+
+/**
+リセットボタンの有効・無効を更新する。
+@remarks
+既定値から動かした項目だけボタンが有効になるので、
+設定を眺めるだけでどこを触ったかが分かる。
+*/
+function syncResetButtons() {
+  let changed = false;
+  for (const entry of SETTING_ENTRIES) {
+    const differs = readSetting(entry) !== entry.def;
+    if (differs) changed = true;
+    if (entry.selector === undefined) continue;
+    const button = document.querySelector(
+      `.control-reset[data-reset="${entry.selector.slice(1)}"]`
+    );
+    if (button !== null) button.disabled = !differs;
+  }
+  $("#reset-all").disabled = state.busy || !changed;
+}
+
+/**
+入力欄を既定値に戻す。
+@param {string} id 対象の要素id。
+*/
+function resetControl(id) {
+  const entry = SETTING_ENTRIES.find((item) => item.selector === `#${id}`);
+  if (entry !== undefined) applySetting(entry, entry.def);
+}
+
+/** すべての設定を既定値に戻す。 */
+function resetAllSettings() {
+  for (const entry of SETTING_ENTRIES) applySetting(entry, entry.def);
+  syncSettingControls();
+  scheduleSave();
+  syncResetButtons();
 }
 
 /** 用紙サイズに応じて設定項目の有効状態を切り替える。 */
@@ -4260,12 +4599,37 @@ function bindEvents() {
     backgroundHex.value = background.value.toUpperCase();
   });
 
-  const onSettingsChange = () => {
+  // プレビューに影響する項目は、変更のたびに描き直す
+  const onPreviewChange = () => {
     syncSettingControls();
     redrawAll();
   };
-  $("#settings").addEventListener("input", onSettingsChange);
-  $("#settings").addEventListener("change", onSettingsChange);
+  for (const id of ["#panel-page", "#panel-quality"]) {
+    $(id).addEventListener("input", onPreviewChange);
+    $(id).addEventListener("change", onPreviewChange);
+  }
+
+  // どの項目でも、保存とリセットボタンの状態は更新する
+  for (const panel of document.querySelectorAll(".settings.panel")) {
+    const onAnyChange = () => {
+      scheduleSave();
+      syncResetButtons();
+    };
+    panel.addEventListener("input", onAnyChange);
+    panel.addEventListener("change", onAnyChange);
+    panel.addEventListener("toggle", onAnyChange);
+  }
+
+  $("#reset-all").addEventListener("click", () => dom.confirmReset.showModal());
+  $("#confirm-cancel").addEventListener("click", () => dom.confirmReset.close());
+  $("#confirm-ok").addEventListener("click", () => {
+    dom.confirmReset.close();
+    resetAllSettings();
+  });
+  dom.confirmReset.addEventListener("click", (event) => {
+    // 中身の外側を押した場合はキャンセル扱い
+    if (event.target === dom.confirmReset) dom.confirmReset.close();
+  });
 
   $("#outline-mode").addEventListener("change", syncSettingControls);
   $("#add-divider").addEventListener("click", () => {
@@ -4383,7 +4747,11 @@ function bindEvents() {
 }
 
 bindEvents();
+registerSettings();
+restoreSettings();
+settingsReady = true;
 syncSettingControls();
+syncResetButtons();
 updateStatus();
 
 // #endregion app
