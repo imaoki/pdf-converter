@@ -265,9 +265,45 @@ input[type="number"] {
   background: var(--accent-soft);
 }
 
+.control-group > input[type="range"] {
+  flex: 1;
+  align-self: center;
+  min-width: 0;
+  margin: 0 8px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 #background-hex {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   text-transform: uppercase;
+}
+
+#jpeg-quality {
+  flex: none;
+  width: 56px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.settings section + section {
+  margin-top: 20px;
 }
 
 .segmented {
@@ -879,6 +915,16 @@ body.busy .settings {
           </select>
         </label>
         <div class="field">
+          <label class="field-label" for="pixel-dpi">画素の換算（dpi）</label>
+          <div class="control-group">
+            <input type="number" id="pixel-dpi" min="1" max="1200" step="1" value="96">
+            <button type="button" class="control-reset" data-reset="pixel-dpi" title="画素の換算を既定値に戻す" aria-label="画素の換算を既定値に戻す">
+              <svg class="icon"><use href="#i-reset"></use></svg>
+            </button>
+          </div>
+          <p class="note">画像の1pxをこの解像度でインチに換算します。96はブラウザと同じ基準です。</p>
+        </div>
+        <div class="field">
           <span class="field-label">向き</span>
           <div class="segmented">
             <label title="画像の縦横比に合わせて向きを決める"><input type="radio" name="orientation" value="auto" checked><span>自動</span></label>
@@ -913,7 +959,48 @@ body.busy .settings {
             </button>
           </div>
         </div>
-        <p class="note" id="size-note">「画像サイズに合わせる」では 1px を 1/96 インチとして計算します。</p>
+      </section>
+
+      <section>
+        <h2>画質・容量</h2>
+        <div class="field">
+          <label class="field-label" for="max-dpi">解像度の上限（dpi）</label>
+          <div class="control-group">
+            <input type="number" id="max-dpi" min="0" max="1200" step="1" value="0">
+            <button type="button" class="control-reset" data-reset="max-dpi" title="解像度の上限を既定値に戻す" aria-label="解像度の上限を既定値に戻す">
+              <svg class="icon"><use href="#i-reset"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label class="field-label" for="max-edge">長辺の上限（px）</label>
+          <div class="control-group">
+            <input type="number" id="max-edge" min="0" max="60000" step="1" value="0">
+            <button type="button" class="control-reset" data-reset="max-edge" title="長辺の上限を既定値に戻す" aria-label="長辺の上限を既定値に戻す">
+              <svg class="icon"><use href="#i-reset"></use></svg>
+            </button>
+          </div>
+          <p class="note">どちらも0で無制限。両方を指定した場合は小さくなる方を使います。</p>
+        </div>
+        <div class="field">
+          <label class="field-label" for="jpeg-quality">JPEGの品質</label>
+          <div class="control-group">
+            <input type="range" id="jpeg-quality-range" min="1" max="100" step="1" value="90" aria-label="JPEGの品質">
+            <input type="number" id="jpeg-quality" min="1" max="100" step="1" value="90">
+            <button type="button" class="control-reset" data-reset="jpeg-quality" title="JPEGの品質を既定値に戻す" aria-label="JPEGの品質を既定値に戻す">
+              <svg class="icon"><use href="#i-reset"></use></svg>
+            </button>
+          </div>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="recompress">
+          <span>常にJPEGで再圧縮する</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="strip-metadata" checked>
+          <span>メタデータを除去する</span>
+        </label>
+        <p class="note">再圧縮しない場合でも、縮小が必要なJPEGは書き直しになります。</p>
       </section>
     </div>
 
@@ -961,9 +1048,9 @@ body.busy .settings {
     <h3>注意事項</h3>
     <ul>
       <li>画像はこのブラウザ内だけで処理され、外部へは送信されません。ページ自体の通信をCSP（Content Security Policy）で遮断しているため、送信そのものが起こりません。</li>
-      <li>JPEGは再圧縮せずそのまま埋め込むため、EXIFなどのメタデータも現状はPDF内に残ります。撮影日時や位置情報を含む場合は注意してください。</li>
-      <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。</li>
-      <li>画素数の非常に多い画像は、ブラウザ側の上限により変換に失敗することがあります。その画像は除外して処理を続けます。</li>
+      <li>「メタデータを除去する」を外すと、撮影日時や位置情報を含むEXIFがPDF内に残ります。既定では取り除きます。</li>
+      <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。「常にJPEGで再圧縮する」で小さくできます。</li>
+      <li>縮小や再圧縮を行う画像は、ブラウザの上限（一辺16384px、総画素数約6700万）を超える場合、指定より小さく変換します。該当した画像は完了時に知らせます。</li>
       <li>プレビューに表示される破線は余白の位置を示す補助線で、PDFには出力されません。</li>
     </ul>
 
@@ -975,8 +1062,20 @@ body.busy .settings {
       <dt>pt</dt>
       <dd>ポイント。PDFが長さに使う単位で、1pt = 1/72インチ。設定したmmはptに換算して出力します。</dd>
 
-      <dt>96 dpi</dt>
-      <dd>「画像サイズに合わせる」で使う換算。画像1pxを1/96インチとして扱うWeb標準の解像度で、3000pxの画像は約794mm幅になります。</dd>
+      <dt>画素の換算（dpi）</dt>
+      <dd>画像1pxを何分の1インチとみなすかの設定。既定の96はCSSが定める値で、ブラウザがHTMLを印刷するときと同じ基準です。「画像サイズに合わせる」でのページサイズと、「縮小のみ」で等倍とみなす大きさがこれで決まります。96なら3000pxの画像は約794mm幅になります。</dd>
+
+      <dt>解像度の上限（dpi）</dt>
+      <dd>ページ上の実寸に対して画素が多すぎる画像を縮小します。A4幅いっぱいに置いた画像を150dpiに抑えると、横は約1240pxになります。0で無制限。</dd>
+
+      <dt>長辺の上限（px）</dt>
+      <dd>用紙の大きさに関係なく、画素数そのもので縮小します。解像度の上限と併用した場合は、縮小率の小さい方を使います。0で無制限。</dd>
+
+      <dt>JPEGの品質</dt>
+      <dd>画像をJPEGとして書き出すときの品質。数字が小さいほど軽くなり、細い線や文字から劣化が目立ちます。元がJPEGの画像を縮小する場合は、再圧縮の設定にかかわらずこの品質で書き直します。</dd>
+
+      <dt>常にJPEGで再圧縮する</dt>
+      <dd>縮小の要否にかかわらず、すべての画像をJPEGで圧縮します。PNGやスクリーンショットを含むPDFを小さくしたいときに使います。透過部分は背景色の上に重ねてから圧縮するため、見た目は変わりません。</dd>
 
       <dt>全体を表示</dt>
       <dd>画像全体が余白の内側に収まるように拡大・縮小します。縦横比は保たれ、余った方向に空きができます。</dd>
@@ -1042,11 +1141,8 @@ body.busy .settings {
 /** 1mmあたりのポイント数。 */
 const PT_PER_MM = 72 / 25.4;
 
-/**
-画像1ピクセルあたりのポイント数。96dpi相当。
-フェーズ2でDPI設定に置き換える。
-*/
-const PT_PER_PX = 72 / 96;
+/** 1インチあたりのポイント数。 */
+const PT_PER_INCH = 72;
 
 /**
 固定用紙サイズ。
@@ -1069,6 +1165,12 @@ const PAGE_SIZES = {
 @property {string} fit 収め方。"contain"、"cover"、"shrink"。
 @property {number} marginMm 余白（mm）。
 @property {string} background 背景色。"#RRGGBB" 形式。
+@property {number} pixelDpi 画素の換算解像度。画像1pxを何分の1インチとみなすか。
+@property {number} maxDpi 出力解像度の上限。0で無制限。
+@property {number} maxEdge 長辺の画素数の上限。0で無制限。
+@property {number} quality JPEGとして書き出すときの品質（1〜100）。
+@property {boolean} recompress 縮小の有無にかかわらずJPEGで再圧縮するか。
+@property {boolean} stripMetadata JPEGのメタデータを取り除くか。
 */
 
 /**
@@ -1179,8 +1281,9 @@ function orientationMatrix(orientation) {
 */
 function computeLayout(pixelW, pixelH, rotation, settings) {
   const swap = rotation % 180 !== 0;
-  const imgW = (swap ? pixelH : pixelW) * PT_PER_PX;
-  const imgH = (swap ? pixelW : pixelH) * PT_PER_PX;
+  const ptPerPx = PT_PER_INCH / settings.pixelDpi;
+  const imgW = (swap ? pixelH : pixelW) * ptPerPx;
+  const imgH = (swap ? pixelW : pixelH) * ptPerPx;
   const margin = Math.max(0, settings.marginMm) * PT_PER_MM;
 
   if (settings.pageSize === "image") {
@@ -1224,6 +1327,98 @@ function computeLayout(pixelW, pixelH, rotation, settings) {
     rect: {x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h},
     clip: settings.fit === "cover" ? box : null
   };
+}
+
+/**
+@typedef {object} OutputSize
+@property {number} width 出力する幅（px）。
+@property {number} height 出力する高さ（px）。
+@property {boolean} scaled 縮小が必要かどうか。
+*/
+
+/**
+出力する画素数を求める。
+@param {number} pixelW 向き補正後の画像幅（px）。
+@param {number} pixelH 向き補正後の画像高さ（px）。
+@param {number} rotation ユーザー指定の回転角（度、時計回り）。
+@param {Layout} layout 配置結果。
+@param {PageSettings} settings ページ設定。
+@returns {OutputSize} 出力する画素数。
+@remarks
+解像度の上限は、ページ上の実寸と画素数から実際の解像度を割り出して判定する。
+長辺の上限と併用した場合は、縮小率の小さい方を採用する。拡大は行わない。
+*/
+function computeOutputSize(pixelW, pixelH, rotation, layout, settings) {
+  const swap = rotation % 180 !== 0;
+  const placedW = swap ? pixelH : pixelW;
+  let scale = 1;
+
+  if (settings.maxDpi > 0 && layout.rect.w > 0) {
+    const actualDpi = placedW * PT_PER_INCH / layout.rect.w;
+    if (actualDpi > settings.maxDpi) scale = settings.maxDpi / actualDpi;
+  }
+  if (settings.maxEdge > 0) {
+    const longest = Math.max(pixelW, pixelH);
+    if (longest > settings.maxEdge) scale = Math.min(scale, settings.maxEdge / longest);
+  }
+
+  const width = Math.max(1, Math.round(pixelW * scale));
+  const height = Math.max(1, Math.round(pixelH * scale));
+  return {width, height, scaled: width < pixelW || height < pixelH};
+}
+
+/** 取り除くJPEGのマーカー。EXIF、XMP、ICCプロファイル、コメントなど。 */
+const STRIPPED_MARKERS = new Set([
+  0xe1, 0xe2, 0xe3, 0xe4, 0xe5, 0xe6, 0xe7,
+  0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xfe
+]);
+
+/**
+JPEGからメタデータのセグメントを取り除く。
+@param {Uint8Array} bytes ファイル内容。
+@returns {Uint8Array} 取り除いたあとのデータ。対象が無ければ元のまま。
+@remarks
+画素データには触れないため、画質は変わらない。
+JFIFのAPP0とAdobeのAPP14は、CMYKの解釈に必要なため残す。
+*/
+function stripJpegMetadata(bytes) {
+  if (bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return bytes;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const parts = [bytes.subarray(0, 2)];
+
+  let pos = 2;
+  while (pos + 4 <= bytes.length && bytes[pos] === 0xff) {
+    const marker = bytes[pos + 1];
+    if (marker === 0xff) {
+      // 詰め物の0xFF
+      parts.push(bytes.subarray(pos, pos + 1));
+      pos++;
+      continue;
+    }
+    if (marker === 0xd9 || marker === 0xda) break;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) {
+      parts.push(bytes.subarray(pos, pos + 2));
+      pos += 2;
+      continue;
+    }
+    const length = view.getUint16(pos + 2);
+    const end = pos + 2 + length;
+    if (length < 2 || end > bytes.length) break;
+    if (!STRIPPED_MARKERS.has(marker)) parts.push(bytes.subarray(pos, end));
+    pos = end;
+  }
+  // 走査開始以降は画素データなので、そのまま末尾まで引き継ぐ
+  parts.push(bytes.subarray(pos));
+
+  const total = parts.reduce((sum, part) => sum + part.length, 0);
+  if (total === bytes.length) return bytes;
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.length;
+  }
+  return out;
 }
 
 /**
@@ -1579,8 +1774,18 @@ const APP_VERSION = "v0.1.0（フェーズ1）";
 const CONTROL_DEFAULTS = {
   margin: "0",
   background: "#ffffff",
+  "pixel-dpi": "96",
+  "max-dpi": "0",
+  "max-edge": "0",
+  "jpeg-quality": "90",
   filename: "images"
 };
+
+/** キャンバスの一辺の上限（px）。これを超える画像は縮小して処理する。 */
+const MAX_CANVAS_EDGE = 16384;
+
+/** キャンバスの総画素数の上限。読み出しに要するメモリを抑えるための値。 */
+const MAX_CANVAS_PIXELS = 64 * 1024 * 1024;
 
 /** 矩形選択を開始したと見なす移動量（CSS px）。 */
 const MARQUEE_THRESHOLD = 4;
@@ -1665,9 +1870,29 @@ function getSettings() {
     pageSize: $("#page-size").value,
     orientation: $('input[name="orientation"]:checked').value,
     fit: $('input[name="fit"]:checked').value,
-    marginMm: Math.min(100, Math.max(0, Number($("#margin").value) || 0)),
-    background: $("#background").value
+    marginMm: readNumber("#margin", 0, 100, 0),
+    background: $("#background").value,
+    pixelDpi: readNumber("#pixel-dpi", 1, 1200, 96),
+    maxDpi: readNumber("#max-dpi", 0, 1200, 0),
+    maxEdge: readNumber("#max-edge", 0, 60000, 0),
+    quality: readNumber("#jpeg-quality", 1, 100, 90),
+    recompress: $("#recompress").checked,
+    stripMetadata: $("#strip-metadata").checked
   };
+}
+
+/**
+数値入力欄の値を範囲内に収めて読み取る。
+@param {string} selector 対象のセレクタ。
+@param {number} min 下限。
+@param {number} max 上限。
+@param {number} fallback 数値として読めない場合の値。
+@returns {number} 読み取った値。
+*/
+function readNumber(selector, min, max, fallback) {
+  const value = Number($(selector).value);
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value));
 }
 
 /**
@@ -1902,8 +2127,11 @@ function drawCard(item, settings) {
     ctx.strokeRect(margin, margin, layout.pageW - margin * 2, layout.pageH - margin * 2);
   }
 
+  const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
+  const outputText = output.scaled ? ` → ${output.width} × ${output.height} px` : "";
   const rotationText = item.rotation === 0 ? "" : `、${item.rotation}°回転`;
-  item.el.querySelector(".card-meta").textContent = `${item.pixelW} × ${item.pixelH} px${rotationText}`;
+  item.el.querySelector(".card-meta").textContent =
+      `${item.pixelW} × ${item.pixelH} px${outputText}${rotationText}`;
 }
 
 /** すべてのカードを再描画する。 */
@@ -2339,14 +2567,19 @@ function sanitizeFilename(value) {
 /**
 PDF埋め込み用の画像データを用意する。
 @param {File} file 元ファイル。
+@param {OutputSize} output 出力する画素数。
+@param {PageSettings} settings ページ設定。
 @returns {Promise<PdfImage>} 画像データ。
+@remarks
+縮小も再圧縮も不要なJPEGだけが、画素に触れずにそのまま埋め込まれる。
+それ以外はブラウザでデコードし直す経路を通る。
 */
-async function prepareImage(file) {
+async function prepareImage(file, output, settings) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const jpeg = parseJpeg(bytes);
-  if (jpeg) {
-    // JPEGは再圧縮せずにそのまま埋め込む
+  if (jpeg && !settings.recompress && !output.scaled) {
     const swap = jpeg.orientation >= 5;
+    const data = settings.stripMetadata ? stripJpegMetadata(bytes) : bytes;
     return {
       width: jpeg.width,
       height: jpeg.height,
@@ -2355,38 +2588,101 @@ async function prepareImage(file) {
       colorSpace: {1: "/DeviceGray", 3: "/DeviceRGB", 4: "/DeviceCMYK"}[jpeg.components],
       filter: "/DCTDecode",
       decode: jpeg.components === 4 && jpeg.adobe ? [1, 0, 1, 0, 1, 0, 1, 0] : null,
-      data: bytes,
+      data,
       alpha: null,
       matrix: orientationMatrix(jpeg.orientation)
     };
   }
-  return rasterizeImage(file);
+  return rasterizeImage(file, output, settings, jpeg !== null);
 }
 
 /**
-ブラウザでデコードした画素をFlate圧縮で埋め込む形式にする。
-@param {File} file 元ファイル。
-@returns {Promise<PdfImage>} 画像データ。
+キャンバスで扱える大きさに収める。
+@param {OutputSize} output 希望する画素数。
+@returns {OutputSize} 収めたあとの画素数。
 */
-async function rasterizeImage(file) {
-  const bitmap = await createImageBitmap(file);
-  const {width, height} = bitmap;
-  let pixels;
+function clampToCanvasLimits(output) {
+  const {width, height} = output;
+  const scale = Math.min(
+    1,
+    MAX_CANVAS_EDGE / Math.max(width, height),
+    Math.sqrt(MAX_CANVAS_PIXELS / (width * height))
+  );
+  if (scale >= 1) return {width, height, scaled: output.scaled};
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+    scaled: true
+  };
+}
+
+/**
+指定した大きさで画像をデコードする。
+@param {File} file 元ファイル。
+@param {OutputSize} size 希望する画素数。
+@returns {Promise<ImageBitmap>} デコード結果。
+@remarks
+デコードと同時に縮小できれば、巨大な画像でも中間のバッファを作らずに済む。
+対応していない環境では等倍で読み込み、描画時に縮小する。
+*/
+async function decodeAtSize(file, size) {
   try {
-    const canvas = typeof OffscreenCanvas === "undefined"
-        ? Object.assign(document.createElement("canvas"), {width, height})
-        : new OffscreenCanvas(width, height);
-    const ctx = canvas.getContext("2d", {willReadFrequently: true});
-    if (!ctx) throw new Error("キャンバスを作成できません。画像が大きすぎる可能性があります。");
-    ctx.drawImage(bitmap, 0, 0);
-    pixels = ctx.getImageData(0, 0, width, height).data;
-    canvas.width = 1;
-    canvas.height = 1;
+    const bitmap = await createImageBitmap(file, {
+      resizeWidth: size.width,
+      resizeHeight: size.height,
+      resizeQuality: "high"
+    });
+    if (bitmap.width === size.width && bitmap.height === size.height) return bitmap;
+    bitmap.close();
+  }
+  catch (error) {
+    // リサイズ付きのデコードに対応していない場合は等倍で読み込む
+  }
+  return createImageBitmap(file);
+}
+
+/**
+ブラウザでデコードし直して埋め込む形式にする。
+@param {File} file 元ファイル。
+@param {OutputSize} output 出力する画素数。
+@param {PageSettings} settings ページ設定。
+@param {boolean} sourceIsJpeg 元がJPEGかどうか。
+@returns {Promise<PdfImage>} 画像データ。
+@remarks
+JPEGで書き出す場合は透過を表現できないため、背景色の上に重ねてから符号化する。
+背景はページ全面に塗られるので、見た目は透過のまま残した場合と変わらない。
+*/
+async function rasterizeImage(file, output, settings, sourceIsJpeg) {
+  const size = clampToCanvasLimits(output);
+  const asJpeg = sourceIsJpeg || settings.recompress;
+  const bitmap = await decodeAtSize(file, size);
+  const width = size.width;
+  const height = size.height;
+
+  const canvas = typeof OffscreenCanvas === "undefined"
+      ? Object.assign(document.createElement("canvas"), {width, height})
+      : new OffscreenCanvas(width, height);
+  const ctx = canvas.getContext("2d", {willReadFrequently: !asJpeg});
+  if (!ctx) throw new Error("キャンバスを作成できません。画像が大きすぎる可能性があります。");
+  try {
+    if (asJpeg) {
+      ctx.fillStyle = settings.background;
+      ctx.fillRect(0, 0, width, height);
+    }
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bitmap, 0, 0, width, height);
   }
   finally {
     bitmap.close();
   }
 
+  const common = {width, height, displayW: width, displayH: height, decode: null, matrix: M_IDENTITY};
+  if (asJpeg) {
+    const data = await encodeCanvas(canvas, "image/jpeg", settings.quality / 100);
+    return {...common, colorSpace: "/DeviceRGB", filter: "/DCTDecode", data, alpha: null};
+  }
+
+  const pixels = ctx.getImageData(0, 0, width, height).data;
   const count = width * height;
   const rgb = new Uint8Array(count * 3);
   const alpha = new Uint8Array(count);
@@ -2400,19 +2696,30 @@ async function rasterizeImage(file) {
     alpha[i] = pixels[p + 3];
     if (alpha[i] !== 255) hasAlpha = true;
   }
-
+  canvas.width = 1;
+  canvas.height = 1;
   return {
-    width,
-    height,
-    displayW: width,
-    displayH: height,
+    ...common,
     colorSpace: "/DeviceRGB",
     filter: "/FlateDecode",
-    decode: null,
     data: await deflate(rgb),
-    alpha: hasAlpha ? await deflate(alpha) : null,
-    matrix: M_IDENTITY
+    alpha: hasAlpha ? await deflate(alpha) : null
   };
+}
+
+/**
+キャンバスの内容を符号化する。
+@param {HTMLCanvasElement|OffscreenCanvas} canvas 対象のキャンバス。
+@param {string} type MIMEタイプ。
+@param {number} quality 品質（0〜1）。
+@returns {Promise<Uint8Array>} 符号化したデータ。
+*/
+async function encodeCanvas(canvas, type, quality) {
+  const blob = canvas.convertToBlob
+      ? await canvas.convertToBlob({type, quality})
+      : await new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+  if (!blob) throw new Error("画像を符号化できませんでした。");
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 /**
@@ -2459,6 +2766,7 @@ async function exportPdf() {
   const pagesId = writer.allocate();
   const pageIds = [];
   const failed = [];
+  const clamped = [];
 
   try {
     for (let i = 0; i < targets.length; i++) {
@@ -2466,8 +2774,10 @@ async function exportPdf() {
       setProgress(i, targets.length, `${i + 1} / ${targets.length}　${item.file.name}`);
       await nextFrame();
       try {
-        const image = await prepareImage(item.file);
-        const layout = computeLayout(image.displayW, image.displayH, item.rotation, settings);
+        const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
+        const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
+        const image = await prepareImage(item.file, output, settings);
+        if (image.displayW < output.width) clamped.push(item.file.name);
         pageIds.push(writePage(writer, pagesId, layout, image, item.rotation, settings.background));
       }
       catch (error) {
@@ -2483,6 +2793,9 @@ async function exportPdf() {
 
     if (failed.length > 0) {
       showMessage(`${pageIds.length} ページのPDFを作成しました。次の画像は変換できず除外しました。\n${listNames(failed)}`, true);
+    }
+    else if (clamped.length > 0) {
+      showMessage(`${pageIds.length} ページのPDFを作成しました。次の画像はブラウザの上限を超えるため、指定より小さく変換しました。\n${listNames(clamped)}`, true);
     }
     else {
       showMessage(`${pageIds.length} ページのPDFを作成しました。`);
@@ -2534,7 +2847,6 @@ function syncSettingControls() {
   for (const el of document.querySelectorAll('input[name="orientation"], input[name="fit"]')) {
     el.disabled = fitToImage;
   }
-  $("#size-note").hidden = !fitToImage;
 }
 
 /** 画面のイベントを登録する。 */
@@ -2564,6 +2876,19 @@ function bindEvents() {
   }
   $("#filename").addEventListener("change", (event) => {
     event.target.value = sanitizeFilename(event.target.value);
+  });
+
+  // スライダーと数値入力を同期する
+  const quality = $("#jpeg-quality");
+  const qualityRange = $("#jpeg-quality-range");
+  qualityRange.addEventListener("input", () => {
+    quality.value = qualityRange.value;
+  });
+  quality.addEventListener("input", () => {
+    qualityRange.value = String(readNumber("#jpeg-quality", 1, 100, 90));
+  });
+  quality.addEventListener("change", () => {
+    quality.value = qualityRange.value;
   });
 
   // 色見本と16進入力を同期する
