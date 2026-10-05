@@ -500,6 +500,11 @@ select:focus-visible {
   color: var(--danger);
 }
 
+.tool[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .separator {
   width: 1px;
   height: 20px;
@@ -602,6 +607,64 @@ select:focus-visible {
 
 .card.selected .card-index {
   background: var(--accent);
+}
+
+.grid[hidden] {
+  display: none;
+}
+
+/* 見開き表示 */
+.spread {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  min-height: 100%;
+  padding: 20px 16px;
+}
+
+.spread[hidden] {
+  display: none;
+}
+
+.spread-file {
+  align-self: stretch;
+  padding: 6px 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 8px;
+}
+
+.spread-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.spread-row.rtl {
+  flex-direction: row-reverse;
+}
+
+.spread-page {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+}
+
+.spread-page canvas {
+  display: block;
+  box-shadow: var(--paper-shadow);
+}
+
+.spread-page.blank {
+  align-self: stretch;
+}
+
+.spread-number {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 分割の区切り。グリッドの全幅を占めて見出しのように見せる */
@@ -957,6 +1020,8 @@ body.busy .settings {
   <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
   <symbol id="i-split" viewBox="0 0 24 24"><path d="M5 9V4h14v5M5 15v5h14v-5"/><path d="M2 12h20" stroke-dasharray="3 3"/></symbol>
+  <symbol id="i-spread" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-blank" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="1" stroke-dasharray="3 3"/></symbol>
 </svg>
 
 <header class="app-header">
@@ -976,6 +1041,9 @@ body.busy .settings {
       </button>
       <button type="button" class="tool" id="add-divider" title="選択したカードの手前に区切りを入れ、PDFを分割します">
         <svg class="icon"><use href="#i-split"></use></svg>区切り
+      </button>
+      <button type="button" class="tool" id="add-blank" title="選択したカードの手前に空ページを入れます">
+        <svg class="icon"><use href="#i-blank"></use></svg>空ページ
       </button>
       <span class="separator"></span>
       <button type="button" class="tool" id="sort-asc" title="ファイル名の昇順（数字は数値として比較）">
@@ -997,11 +1065,16 @@ body.busy .settings {
       <button type="button" class="tool danger" id="remove-selected" title="選択した画像を削除（Delete）">
         <svg class="icon"><use href="#i-trash"></use></svg>削除
       </button>
+      <span class="separator"></span>
+      <button type="button" class="tool" id="toggle-view" aria-pressed="false" title="並びと見開きの表示を切り替える">
+        <svg class="icon"><use href="#i-spread"></use></svg>見開き
+      </button>
       <span class="status" id="status"></span>
       <button type="button" class="tool danger" id="clear">すべて削除</button>
     </div>
     <div class="scroller" id="scroller">
       <div class="grid" id="grid"></div>
+      <div class="spread" id="spread" hidden></div>
       <div class="empty" id="empty">
         <button type="button" class="dropzone" id="dropzone">
           <svg class="icon"><use href="#i-upload"></use></svg>
@@ -1164,6 +1237,21 @@ body.busy .settings {
         <input type="checkbox" id="outline-extension">
         <span>ファイル名に拡張子を含める</span>
       </label>
+      <label class="field">
+        <span class="field-label">ページレイアウト</span>
+        <select id="page-layout">
+          <option value="none" selected>指定しない</option>
+          <option value="single">単ページ</option>
+          <option value="continuous">連続</option>
+          <option value="spread-cover">見開き（表紙を単独）</option>
+          <option value="spread">見開き（先頭から2ページ）</option>
+        </select>
+      </label>
+      <label class="check">
+        <input type="checkbox" id="right-to-left">
+        <span>右綴じ（右から左へ）</span>
+      </label>
+      <p class="note">ビューワーによっては、これらの指定が反映されません。</p>
       <div class="field">
         <label class="field-label" for="filename">ファイル名（.pdf）</label>
         <div class="control-group">
@@ -1258,6 +1346,7 @@ body.busy .settings {
       <li>JPEG以外は可逆圧縮で埋め込むため、写真をPNGで保存したものはPDFが大きくなります。「常にJPEGで再圧縮する」で小さくできます。</li>
       <li>縮小や再圧縮を行う画像は、ブラウザの上限（一辺16384px、総画素数約6700万）を超える場合、指定より小さく変換します。該当した画像は完了時に知らせます。</li>
       <li>プレビューに表示される破線は余白の位置を示す補助線で、PDFには出力されません。</li>
+      <li>ページレイアウトと右綴じは、開いたときの初期状態を伝える指定です。ブラウザ内蔵のビューワーは基本的に無視し、反映するビューワーでも、開いたあとは利用者の操作が優先されます。ツールバーの「見開き」は、指定が反映された場合の並びを示すものです。</li>
       <li>分割して2つ以上になる場合は、ZIPにまとめて渡します。ファイル名は <code>images_1.pdf</code> のような連番になります。</li>
       <li>しおりは並び順をもとに自動で作ります。並べ替えで同じフォルダの画像が離れた場合は、その回数だけ項目ができます。</li>
       <li>このHTMLをファイルとして直接開いている場合、ブラウザがフォルダのドラッグ&amp;ドロップを受け付けないことがあります。その場合はツールバーの「フォルダを追加」から選んでください。</li>
@@ -1301,6 +1390,15 @@ body.busy .settings {
       <dt>しおり</dt>
       <dd>PDFの目次にあたる仕組みで、ビューワーの横に出る階層型のナビゲーションです。アウトラインとも呼びます。フォルダから追加した画像の階層と、各ページのファイル名から作ります。しおりがある場合は、開いたときにパネルを表示するよう指定しますが、この指定を無視するビューワーもあります。</dd>
 
+      <dt>ページレイアウト</dt>
+      <dd>開いたときの表示方法をビューワーに伝える指定です。「表紙を単独」は1ページ目だけを単独で並べ、2ページ目から対にします。「先頭から2ページ」は1ページ目と2ページ目を対にします。ツールバーの「見開き」で、この並びを画面上でも確認できます。あくまで初期状態の指定なので、開いたあとの表示はビューワー側の操作が優先されます。</dd>
+
+      <dt>右綴じ</dt>
+      <dd>ページを右から左へ並べる指定です。縦書きの資料や漫画で使います。見開きの左右が入れ替わります。</dd>
+
+      <dt>空ページ</dt>
+      <dd>何も描かないページです。見開きで並びがずれるときに挟んで調整します。大きさは最も近い画像のページに合わせ、背景色だけを塗ります。しおりの項目にはなりません。プレビューに出る破線は、白い背景でも空ページと分かるようにするための補助線で、PDFには出力されません。</dd>
+
       <dt>分割（手動）</dt>
       <dd>ツールバーの「区切り」で、選択したカードの手前に区切りを入れます。区切りから次の区切りまでが1つのPDFになります。区切りは画像と同じように移動・削除できます。分割方式が手動以外のときは、置いたままでも使われません。</dd>
 
@@ -1337,6 +1435,22 @@ body.busy .settings {
     <span class="divider-label"></span>
     <div class="card-actions">
       <button type="button" class="icon-button danger" data-action="remove" title="区切りを削除">
+        <svg class="icon"><use href="#i-trash"></use></svg>
+      </button>
+    </div>
+  </div>
+</template>
+
+<template id="blank-template">
+  <div class="card" draggable="true">
+    <span class="card-index"></span>
+    <div class="card-page"><canvas class="card-canvas"></canvas></div>
+    <div>
+      <div class="card-name">空ページ</div>
+      <div class="card-meta"></div>
+    </div>
+    <div class="card-actions">
+      <button type="button" class="icon-button danger" data-action="remove" title="削除">
         <svg class="icon"><use href="#i-trash"></use></svg>
       </button>
     </div>
@@ -1978,6 +2092,34 @@ function writePage(writer, pagesId, layout, image, rotation, background) {
 }
 
 /**
+空ページを1ページ分書き出す。
+@param {PdfWriter} writer 書き出し先。
+@param {number} pagesId ページツリーのオブジェクト番号。
+@param {Layout} layout 配置結果。大きさだけを使う。
+@param {string} background 背景色。"#RRGGBB" 形式。
+@returns {number} ページのオブジェクト番号。
+*/
+function writeBlankPage(writer, pagesId, layout, background) {
+  const content = [
+    "q",
+    `${parseHexColor(background).map(formatNumber).join(" ")} rg`,
+    `0 0 ${formatNumber(layout.pageW)} ${formatNumber(layout.pageH)} re f`,
+    "Q"
+  ].join("\n");
+  const contentId = writer.allocate();
+  writer.writeStream(contentId, "", writer.encoder.encode(content));
+
+  const pageId = writer.allocate();
+  const mediaBox = [0, 0, layout.pageW, layout.pageH].map(formatNumber).join(" ");
+  writer.writeObject(
+    pageId,
+    `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [${mediaBox}]`
+        + ` /Resources << >> /Contents ${contentId} 0 R >>`
+  );
+  return pageId;
+}
+
+/**
 @typedef {object} OutlineNode
 @property {string} title しおりに表示する文字列。
 @property {number} pageIndex 飛び先のページ番号。0起点。
@@ -2058,6 +2200,25 @@ function writeOutline(writer, roots, pageIds) {
 }
 
 /**
+@typedef {object} ViewSettings
+@property {string} layout ページレイアウト。PAGE_LAYOUTS のキー。
+@property {boolean} rightToLeft 右綴じにするかどうか。
+*/
+
+/**
+ページレイアウトの対応表。
+@remarks
+TwoColumnRight は奇数ページを右の列に置くため、1ページ目が単独で並ぶ。
+TwoColumnLeft は1ページ目を左に置くため、先頭から2ページが対になる。
+*/
+const PAGE_LAYOUTS = {
+  single: "/SinglePage",
+  continuous: "/OneColumn",
+  "spread-cover": "/TwoColumnRight",
+  spread: "/TwoColumnLeft"
+};
+
+/**
 @typedef {object} DocumentInfo
 @property {string} title タイトル。
 @property {string} author 作成者。
@@ -2115,9 +2276,10 @@ function writeDocumentInfo(writer, info) {
 @param {number[]} pageIds ページのオブジェクト番号。
 @param {DocumentInfo} info 文書情報。
 @param {OutlineNode[]} outline しおりの項目。空なら作成しない。
+@param {ViewSettings} view 表示設定。
 @returns {Blob} PDFデータ。
 */
-function finishDocument(writer, pagesId, pageIds, info, outline) {
+function finishDocument(writer, pagesId, pageIds, info, outline, view) {
   writer.writeObject(
     pagesId,
     `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(" ")}] /Count ${pageIds.length} >>`
@@ -2126,10 +2288,11 @@ function finishDocument(writer, pagesId, pageIds, info, outline) {
   const outlineId = writeOutline(writer, outline, pageIds);
   const catalogId = writer.allocate();
   // しおりがある場合は、開いたときにしおりパネルを表示する
-  const outlineParts = outlineId === 0
-      ? ""
-      : ` /Outlines ${outlineId} 0 R /PageMode /UseOutlines`;
-  writer.writeObject(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R${outlineParts} >>`);
+  const parts = [`/Type /Catalog`, `/Pages ${pagesId} 0 R`];
+  if (outlineId !== 0) parts.push(`/Outlines ${outlineId} 0 R`, "/PageMode /UseOutlines");
+  if (PAGE_LAYOUTS[view.layout]) parts.push(`/PageLayout ${PAGE_LAYOUTS[view.layout]}`);
+  if (view.rightToLeft) parts.push("/ViewerPreferences << /Direction /R2L >>");
+  writer.writeObject(catalogId, `<< ${parts.join(" ")} >>`);
   return writer.finish(catalogId, writeDocumentInfo(writer, info));
 }
 
@@ -2232,7 +2395,7 @@ function buildZip(files, date) {
 // #region app
 
 /** 表示するバージョン。出力のたびに内容に応じて改定する。 */
-const APP_VERSION = "0.7.1";
+const APP_VERSION = "0.10.2";
 
 /**
 値を任意に変更できる設定項目の既定値。
@@ -2269,6 +2432,9 @@ const THUMB_MAX = 360;
 /** カード内プレビューの最大表示サイズ（CSS px）。 */
 const PREVIEW_BOX = 160;
 
+/** 見開き表示の1ページの最大表示サイズ（CSS px）。 */
+const SPREAD_BOX = 260;
+
 /** サムネイル生成の同時実行数。 */
 const LOAD_CONCURRENCY = 3;
 
@@ -2303,6 +2469,7 @@ const state = {
   anchorId: null,
   busy: false,
   dragging: false,
+  spread: false,
   nextId: 1
 };
 
@@ -2322,6 +2489,7 @@ const $ = (selector) => document.querySelector(selector);
 
 const dom = {
   grid: $("#grid"),
+  spread: $("#spread"),
   scroller: $("#scroller"),
   marquee: $("#marquee"),
   help: $("#help"),
@@ -2336,6 +2504,7 @@ const dom = {
   message: $("#message"),
   template: $("#card-template"),
   dividerTemplate: $("#divider-template"),
+  blankTemplate: $("#blank-template"),
   firstGroup: createFirstGroupHeader()
 };
 
@@ -2563,16 +2732,74 @@ function createDivider() {
 }
 
 /**
-選択位置に区切りを挿入する。
-@remarks 何も選択していない場合は末尾に置く。分割方式も手動へ切り替える。
+空ページの項目とカード要素を作成する。
+@returns {Item} 作成した項目。
 */
-function insertDivider() {
-  const first = state.items.findIndex((item) => state.selected.has(item.id));
+function createBlank() {
+  const el = dom.blankTemplate.content.firstElementChild.cloneNode(true);
+  const item = {
+    id: state.nextId++,
+    kind: "blank",
+    folders: [],
+    rotation: 0,
+    status: "ready",
+    el,
+    canvas: el.querySelector(".card-canvas")
+  };
+  el.dataset.id = String(item.id);
+
+  el.addEventListener("click", (event) => {
+    if (event.target.closest("[data-action]")) {
+      removeItems([item.id]);
+      return;
+    }
+    selectByClick(item, event);
+  });
+  el.addEventListener("dragstart", (event) => onDragStart(item, event));
+  el.addEventListener("dragend", onDragEnd);
+  return item;
+}
+
+/**
+選択位置に項目を挿入する。
+@param {Item} item 挿入する項目。
+@remarks 何も選択していない場合は末尾に置く。
+*/
+function insertItem(item) {
+  const first = state.items.findIndex((entry) => state.selected.has(entry.id));
   const at = first < 0 ? state.items.length : first;
-  state.items.splice(at, 0, createDivider());
-  $("#split-mode").value = "manual";
-  syncSettingControls();
+  state.items.splice(at, 0, item);
+  // 区切りには描画先が無い
+  if (item.canvas) drawCard(item, getSettings());
   renderOrder();
+}
+
+/**
+空ページの配置を求める。
+@param {Item} item 対象の空ページ。
+@param {PageSettings} settings ページ設定。
+@returns {Layout} 配置結果。
+@remarks
+最も近い画像と同じ大きさにして、見開きで並びが崩れないようにする。
+画像が1枚も無い場合は用紙サイズから決める。
+*/
+function blankLayout(item, settings) {
+  const index = state.items.indexOf(item);
+  const nearby = [
+    ...state.items.slice(0, index).reverse(),
+    ...state.items.slice(index + 1)
+  ];
+  const image = nearby.find((entry) => entry.kind === "image" && entry.status === "ready");
+  if (image) return computeLayout(image.pixelW, image.pixelH, image.rotation, settings);
+
+  const [width, height] = PAGE_SIZES[settings.pageSize === "image" ? "A4" : settings.pageSize];
+  const landscape = settings.orientation === "landscape";
+  return {
+    pageW: (landscape ? height : width) * PT_PER_MM,
+    pageH: (landscape ? width : height) * PT_PER_MM,
+    rect: {x: 0, y: 0, w: 0, h: 0},
+    clip: null
+  };
 }
 
 /** 読み込み待ちの項目を同時実行数の範囲で処理する。 */
@@ -2649,21 +2876,72 @@ function resizeCanvas(canvas, width, height, dpr) {
 @param {PageSettings} settings ページ設定。
 */
 function drawCard(item, settings) {
-  const canvas = item.canvas;
-  const ctx = canvas.getContext("2d");
-  const dpr = window.devicePixelRatio || 1;
+  drawPage(item.canvas, item, settings, PREVIEW_BOX);
+  if (item.status !== "ready") return;
 
-  if (item.status !== "ready") {
-    const width = PREVIEW_BOX / Math.SQRT2;
-    resizeCanvas(canvas, width, PREVIEW_BOX, dpr);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = "#e8ebee";
-    ctx.fillRect(0, 0, width, PREVIEW_BOX);
+  if (item.kind === "blank") {
+    const size = blankLayout(item, settings);
+    const mm = (value) => Math.round(value / PT_PER_MM);
+    item.el.querySelector(".card-meta").textContent = `${mm(size.pageW)} × ${mm(size.pageH)} mm`;
     return;
   }
 
   const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
-  const scale = Math.min(PREVIEW_BOX / layout.pageW, PREVIEW_BOX / layout.pageH);
+  const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
+  const outputText = output.scaled ? ` → ${output.width} × ${output.height} px` : "";
+  const rotationText = item.rotation === 0 ? "" : `、${item.rotation}°回転`;
+  item.el.querySelector(".card-meta").textContent =
+      `${item.pixelW} × ${item.pixelH} px${outputText}${rotationText}`;
+}
+
+/**
+背景の上で見やすい補助線の色を返す。
+@param {string} background 背景色。"#RRGGBB" 形式。
+@returns {string} 線の色。
+*/
+function guideColor(background) {
+  const [red, green, blue] = parseHexColor(background);
+  const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+  return luminance > 0.5 ? "rgba(47, 79, 196, 0.45)" : "rgba(255, 255, 255, 0.5)";
+}
+
+/**
+1ページ分をキャンバスに描く。
+@param {HTMLCanvasElement} canvas 描画先。
+@param {Item} item 対象の項目。
+@param {PageSettings} settings ページ設定。
+@param {number} box 収める正方形の一辺（CSS px）。
+*/
+function drawPage(canvas, item, settings, box) {
+  const ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+
+  if (item.kind === "blank") {
+    const blank = blankLayout(item, settings);
+    const blankScale = Math.min(box / blank.pageW, box / blank.pageH);
+    resizeCanvas(canvas, blank.pageW * blankScale, blank.pageH * blankScale, dpr);
+    ctx.setTransform(dpr * blankScale, 0, 0, dpr * blankScale, 0, 0);
+    ctx.fillStyle = settings.background;
+    ctx.fillRect(0, 0, blank.pageW, blank.pageH);
+    // 白い背景でも空ページと分かるようにする補助線（PDFには出力しない）
+    ctx.strokeStyle = guideColor(settings.background);
+    ctx.lineWidth = 1 / blankScale;
+    ctx.setLineDash([4 / blankScale, 4 / blankScale]);
+    ctx.strokeRect(2, 2, blank.pageW - 4, blank.pageH - 4);
+    return;
+  }
+
+  if (item.status !== "ready") {
+    const width = box / Math.SQRT2;
+    resizeCanvas(canvas, width, box, dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#e8ebee";
+    ctx.fillRect(0, 0, width, box);
+    return;
+  }
+
+  const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
+  const scale = Math.min(box / layout.pageW, box / layout.pageH);
   resizeCanvas(canvas, layout.pageW * scale, layout.pageH * scale, dpr);
   ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
   ctx.fillStyle = settings.background;
@@ -2688,27 +2966,21 @@ function drawCard(item, settings) {
   if (settings.marginMm > 0 && settings.pageSize !== "image") {
     // 余白の位置を示す補助線（PDFには出力しない）
     const margin = settings.marginMm * PT_PER_MM;
-    const [red, green, blue] = parseHexColor(settings.background);
-    const luminance = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-    ctx.strokeStyle = luminance > 0.5 ? "rgba(47, 79, 196, 0.45)" : "rgba(255, 255, 255, 0.5)";
+    ctx.strokeStyle = guideColor(settings.background);
     ctx.lineWidth = 1 / scale;
     ctx.setLineDash([3 / scale, 3 / scale]);
     ctx.strokeRect(margin, margin, layout.pageW - margin * 2, layout.pageH - margin * 2);
   }
-
-  const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
-  const outputText = output.scaled ? ` → ${output.width} × ${output.height} px` : "";
-  const rotationText = item.rotation === 0 ? "" : `、${item.rotation}°回転`;
-  item.el.querySelector(".card-meta").textContent =
-      `${item.pixelW} × ${item.pixelH} px${outputText}${rotationText}`;
 }
 
 /** すべてのカードを再描画する。 */
 function redrawAll() {
   const settings = getSettings();
   for (const item of state.items) {
-    if (item.kind === "image") drawCard(item, settings);
+    // 空ページも背景色や用紙サイズの影響を受ける
+    if (item.canvas) drawCard(item, settings);
   }
+  if (state.spread) renderSpread();
 }
 
 /**
@@ -2745,7 +3017,100 @@ function renderOrder() {
     fragment.append(item.el);
   }
   dom.grid.replaceChildren(fragment);
+  if (state.spread) renderSpread();
   updateStatus();
+}
+
+/**
+現在の表示設定を取得する。
+@returns {ViewSettings} 表示設定。
+*/
+function getViewSettings() {
+  return {
+    layout: $("#page-layout").value,
+    rightToLeft: $("#right-to-left").checked
+  };
+}
+
+/**
+見開き表示のページの並びを求める。
+@param {Item[]} group 1つのPDFに入る画像。
+@param {string} layout ページレイアウト。
+@returns {{items: Item[], blankFirst: boolean, from: number}[]} 行ごとの並び。
+@remarks
+「表紙を単独」では先頭の1ページだけを単独の行にし、空き側を先に置く。
+対にならない最後のページは、空きを後ろに置く。
+*/
+function buildSpreadRows(group, layout) {
+  const paired = layout === "spread" || layout === "spread-cover";
+  const rows = [];
+  let index = 0;
+  if (paired && layout === "spread-cover" && group.length > 0) {
+    rows.push({items: [group[0]], blankFirst: true, from: 1});
+    index = 1;
+  }
+  const step = paired ? 2 : 1;
+  for (; index < group.length; index += step) {
+    rows.push({items: group.slice(index, index + step), blankFirst: false, from: index + 1});
+  }
+  return rows;
+}
+
+/** 見開き表示を組み立てる。 */
+function renderSpread() {
+  const settings = getSettings();
+  const view = getViewSettings();
+  const paired = view.layout === "spread" || view.layout === "spread-cover";
+  const ready = state.items.filter((item) => item.kind !== "image" || item.status === "ready");
+  const groups = buildGroups(ready, $("#split-mode").value, settings);
+  const fragment = document.createDocumentFragment();
+
+  groups.forEach((group, groupIndex) => {
+    if (groups.length > 1) {
+      const header = document.createElement("div");
+      header.className = "spread-file";
+      header.textContent = `ファイル ${groupIndex + 1}`;
+      fragment.append(header);
+    }
+    for (const row of buildSpreadRows(group, view.layout)) {
+      const el = document.createElement("div");
+      el.className = view.rightToLeft ? "spread-row rtl" : "spread-row";
+      let width = 0;
+      row.items.forEach((item, offset) => {
+        const canvas = document.createElement("canvas");
+        drawPage(canvas, item, settings, SPREAD_BOX);
+        width = parseFloat(canvas.style.width);
+        const number = document.createElement("div");
+        number.className = "spread-number";
+        number.textContent = String(row.from + offset);
+        const page = document.createElement("div");
+        page.className = "spread-page";
+        page.append(canvas, number);
+        el.append(page);
+      });
+      if (paired && row.items.length === 1) {
+        // 対にならない側は空けておく
+        const blank = document.createElement("div");
+        blank.className = "spread-page blank";
+        blank.style.width = `${width}px`;
+        if (row.blankFirst) {el.prepend(blank);} else {el.append(blank);}
+      }
+      fragment.append(el);
+    }
+  });
+  dom.spread.replaceChildren(fragment);
+}
+
+/**
+一覧と見開きの表示を切り替える。
+@param {boolean} spread 見開きにする場合はtrue。
+*/
+function setSpreadView(spread) {
+  state.spread = spread;
+  dom.grid.hidden = spread;
+  dom.spread.hidden = !spread;
+  $("#toggle-view").setAttribute("aria-pressed", String(spread));
+  if (spread) renderSpread();
 }
 
 /** ツールバーと出力ボタンの状態を更新する。 */
@@ -2766,7 +3131,9 @@ function updateStatus() {
   for (const id of ["#sort-asc", "#sort-desc", "#clear"]) {
     $(id).disabled = state.items.length === 0;
   }
-  $("#add-divider").disabled = state.busy || images === 0;
+  for (const id of ["#add-divider", "#add-blank"]) {
+    $(id).disabled = state.busy || images === 0;
+  }
   dom.exportButton.disabled = state.busy || images === 0 || loading > 0;
 }
 
@@ -2878,6 +3245,7 @@ function removeItems(ids) {
 @remarks
 フォルダから追加した画像は、フォルダごとにまとまるよう経路で比較する。
 しおりの構造が分断されないようにするため。
+区切りと空ページは置いた位置のまま動かさない。
 */
 function sortByName(descending) {
   const sign = descending ? -1 : 1;
@@ -2890,7 +3258,8 @@ function sortByName(descending) {
   };
   // 区切りは動かさず、その間だけを並べ替える
   for (const item of state.items) {
-    if (item.kind === "divider") {
+    // 区切りと空ページは位置に意味があるので動かさない
+    if (item.kind !== "image") {
       flush();
       sorted.push(item);
       continue;
@@ -3361,6 +3730,8 @@ function buildOutline(items, mode, keepExtension) {
   const open = [];
 
   items.forEach((item, index) => {
+    // 空ページはページ番号だけを進め、しおりの項目にはしない
+    if (item.kind === "blank") return;
     const folders = useFolders ? item.folders : [];
     let shared = 0;
     while (
@@ -3400,7 +3771,7 @@ function buildOutline(items, mode, keepExtension) {
 実際の区切りは書き出しの途中で判定する。
 */
 function buildGroups(items, mode, settings) {
-  const images = items.filter((item) => item.kind === "image");
+  const images = items.filter((item) => item.kind !== "divider");
   if (mode === "manual") {
     const groups = [[]];
     for (const item of items) {
@@ -3424,7 +3795,8 @@ function buildGroups(items, mode, settings) {
     const groups = [];
     let previous = null;
     for (const item of images) {
-      const path = item.folders.join("/");
+      // 空ページはフォルダを持たないので、直前のまとまりに続ける
+      const path = item.kind === "blank" ? previous : item.folders.join("/");
       if (groups.length === 0 || path !== previous) groups.push([]);
       groups[groups.length - 1].push(item);
       previous = path;
@@ -3649,8 +4021,9 @@ function nextFrame() {
 /** PDFを作成してダウンロードする。 */
 async function exportPdf() {
   const ready = state.items.filter((item) => item.kind !== "image" || item.status === "ready");
-  const total = ready.filter((item) => item.kind === "image").length;
-  if (total === 0 || state.busy) return;
+  const images = ready.filter((item) => item.kind === "image").length;
+  const total = ready.filter((item) => item.kind !== "divider").length;
+  if (images === 0 || state.busy) return;
 
   setBusy(true);
   const settings = getSettings();
@@ -3681,8 +4054,19 @@ async function exportPdf() {
     for (const group of groups) {
       close();
       for (const item of group) {
-        setProgress(done, total, `${done + 1} / ${total}　${item.file.name}`);
+        const label = item.kind === "blank" ? "空ページ" : item.file.name;
+        setProgress(done, total, `${done + 1} / ${total}　${label}`);
         await nextFrame();
+
+        if (item.kind === "blank") {
+          if (current === null) start();
+          const blank = blankLayout(item, settings);
+          current.pageIds.push(writeBlankPage(current.writer, current.pagesId, blank, settings.background));
+          current.written.push(item);
+          done++;
+          continue;
+        }
+
         try {
           const layout = computeLayout(item.pixelW, item.pixelH, item.rotation, settings);
           const output = computeOutputSize(item.pixelW, item.pixelH, item.rotation, layout, settings);
@@ -3717,6 +4101,7 @@ async function exportPdf() {
     await nextFrame();
     const outlineMode = $("#outline-mode").value;
     const keepExtension = $("#outline-extension").checked;
+    const view = getViewSettings();
     const digits = String(documents.length).length;
     const outputs = documents.map((entry, index) => {
       const name = documents.length === 1
@@ -3725,7 +4110,9 @@ async function exportPdf() {
       const outline = buildOutline(entry.written, outlineMode, keepExtension);
       return {
         name: `${name}.pdf`,
-        blob: finishDocument(entry.writer, entry.pagesId, entry.pageIds, getDocumentInfo(name), outline)
+        blob: finishDocument(
+          entry.writer, entry.pagesId, entry.pageIds, getDocumentInfo(name), outline, view
+        )
       };
     });
 
@@ -3881,10 +4268,23 @@ function bindEvents() {
   $("#settings").addEventListener("change", onSettingsChange);
 
   $("#outline-mode").addEventListener("change", syncSettingControls);
-  $("#add-divider").addEventListener("click", insertDivider);
+  $("#add-divider").addEventListener("click", () => {
+    insertItem(createDivider());
+    $("#split-mode").value = "manual";
+    syncSettingControls();
+    renderOrder();
+  });
+  $("#add-blank").addEventListener("click", () => insertItem(createBlank()));
+  $("#toggle-view").addEventListener("click", () => setSpreadView(!state.spread));
+  for (const id of ["#page-layout", "#right-to-left"]) {
+    $(id).addEventListener("change", () => {
+      syncSettingControls();
+      if (state.spread) renderSpread();
+    });
+  }
   $("#split-mode").addEventListener("change", () => {
     syncSettingControls();
-    // 区切りの表示（有効・無効）が変わる
+    // 区切りの表示（有効・無効）と見開きの区切り位置が変わる
     renderOrder();
   });
 
